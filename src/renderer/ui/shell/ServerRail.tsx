@@ -5,7 +5,7 @@ import { useAccountsStore } from '@/state/accounts';
 import { useRoomsStore, type RoomSummary } from '@/state/rooms';
 import { useUiStore } from '@/state/ui';
 import { accountManager } from '@/matrix/AccountManager';
-import { mxcToHttp } from '@/lib/mxc';
+import { AuthedImage } from '@/lib/mxc';
 import { getTopLevelSpaces } from '@/lib/spaces';
 
 export function ServerRail() {
@@ -120,7 +120,6 @@ function SpaceButton({
   active: boolean;
   onClick: () => void;
 }) {
-  const avatar = mxcToHttp(client, space.avatarMxc, 48, 48);
   return (
     <div className="relative flex items-center">
       <ActivePill visible={active} />
@@ -136,14 +135,18 @@ function SpaceButton({
             : 'bg-[var(--color-panel)] text-[var(--color-text-muted)] hover:bg-[var(--color-accent)] hover:text-white',
         )}
       >
-        {avatar ? (
-          // eslint-disable-next-line jsx-a11y/alt-text
-          <img src={avatar} className="h-full w-full object-cover" />
-        ) : (
-          <span className="flex h-full w-full items-center justify-center font-semibold">
-            {initialFrom(space.name)}
-          </span>
-        )}
+        <AuthedImage
+          client={client}
+          mxc={space.avatarMxc}
+          width={48}
+          height={48}
+          className="h-full w-full object-cover"
+          fallback={
+            <span className="flex h-full w-full items-center justify-center font-semibold">
+              {initialFrom(space.name)}
+            </span>
+          }
+        />
       </button>
     </div>
   );

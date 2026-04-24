@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, Hash, Lock, Volume2 } from 'lucide-react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { mxcToHttp } from '@/lib/mxc';
+import { AuthedImage } from '@/lib/mxc';
 import type { RoomSummary } from '@/state/rooms';
 import { getSpaceTree } from '@/lib/spaces';
 
@@ -155,16 +155,15 @@ function RoomIcon({
   room: RoomSummary;
   client: MatrixClient | null;
 }) {
-  const avatar = client ? mxcToHttp(client, room.avatarMxc, 28, 28) : null;
-  if (avatar) {
-    // eslint-disable-next-line jsx-a11y/alt-text
-    return (
-      <img
-        src={avatar}
-        className="h-5 w-5 rounded-full bg-[var(--color-surface)] object-cover"
-      />
-    );
-  }
   const Icon = room.isDirect ? Volume2 : room.isEncrypted ? Lock : Hash;
-  return <Icon className="h-4 w-4 text-[var(--color-text-faint)]" />;
+  return (
+    <AuthedImage
+      client={client}
+      mxc={room.avatarMxc}
+      width={28}
+      height={28}
+      className="h-5 w-5 rounded-full bg-[var(--color-surface)] object-cover"
+      fallback={<Icon className="h-4 w-4 text-[var(--color-text-faint)]" />}
+    />
+  );
 }

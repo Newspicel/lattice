@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { useAccountsStore } from '@/state/accounts';
 import { useUiStore } from '@/state/ui';
 import { accountManager } from '@/matrix/AccountManager';
-import { mxcToHttp } from '@/lib/mxc';
+import { AuthedImage } from '@/lib/mxc';
 
 export function UserPanel() {
   const activeAccountId = useAccountsStore((s) => s.activeAccountId);
@@ -14,8 +14,6 @@ export function UserPanel() {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
 
   const client = activeAccountId ? accountManager.getClient(activeAccountId) : null;
-  const avatar =
-    client && account?.avatarUrl ? mxcToHttp(client, account.avatarUrl, 32, 32) : null;
 
   const display = account?.displayName || account?.userId || 'Not signed in';
   const subline = account?.userId ?? '';
@@ -24,15 +22,14 @@ export function UserPanel() {
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-t border-[var(--color-divider)] bg-[var(--color-panel-2)] px-2">
       <div className="relative h-8 w-8 shrink-0">
-        {avatar ? (
-          // eslint-disable-next-line jsx-a11y/alt-text
-          <img
-            src={avatar}
-            className="h-8 w-8 rounded-full bg-[var(--color-surface)] object-cover"
-          />
-        ) : (
-          <InitialBadge text={display} />
-        )}
+        <AuthedImage
+          client={client}
+          mxc={account?.avatarUrl}
+          width={32}
+          height={32}
+          className="h-8 w-8 rounded-full bg-[var(--color-surface)] object-cover"
+          fallback={<InitialBadge text={display} />}
+        />
         <span
           title={label}
           className={cn(

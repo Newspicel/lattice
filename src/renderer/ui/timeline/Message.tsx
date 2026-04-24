@@ -5,7 +5,7 @@ import { sanitizeEventHtml } from '@/lib/markdown';
 import { useAccountsStore } from '@/state/accounts';
 import { useUiStore } from '@/state/ui';
 import { accountManager } from '@/matrix/AccountManager';
-import { mxcToHttp } from '@/lib/mxc';
+import { AuthedImage, useAuthedMedia } from '@/lib/mxc';
 import { redactEvent, sendReaction, sendEdit } from '@/matrix/messageOps';
 import { PollView, isPollStartType } from './Poll';
 
@@ -30,42 +30,42 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
 
   const isMine = client?.getUserId() === entry.sender;
 
+  const content = entry.content as {
+    msgtype?: string;
+    body?: string;
+    format?: string;
+    formatted_body?: string;
+    url?: string;
+  };
+
   const renderedHtml = useMemo(() => {
     if (entry.isRedacted)
       return '<em style="color: var(--color-text-faint)">[redacted]</em>';
     if (entry.isDecryptionFailure)
       return '<em class="text-amber-400">[unable to decrypt]</em>';
 
-    const content = entry.content as {
-      msgtype?: string;
-      body?: string;
-      format?: string;
-      formatted_body?: string;
-      url?: string;
-    };
-
     if (content.format === 'org.matrix.custom.html' && content.formatted_body) {
       return sanitizeEventHtml(content.formatted_body);
     }
-    if (content.msgtype === 'm.image' && content.url && client) {
-      const url = mxcToHttp(client, content.url, 480, 320);
-      return `<img src="${url ?? ''}" alt="${escapeHtml(content.body ?? '')}" style="max-width:480px;max-height:320px;border-radius:8px" />`;
-    }
-    if (content.msgtype === 'm.file' && content.url && client) {
-      const url = mxcToHttp(client, content.url);
-      return `<a href="${url ?? ''}" target="_blank" rel="noopener">${escapeHtml(content.body ?? 'file')}</a>`;
-    }
     return escapeHtml(content.body ?? '');
-  }, [entry, client]);
+  }, [entry.isRedacted, entry.isDecryptionFailure, content.format, content.formatted_body, content.body]);
 
-  const avatarUrl = useMemo(() => {
+  const isImage =
+    !entry.isRedacted &&
+    !entry.isDecryptionFailure &&
+    content.msgtype === 'm.image' &&
+    typeof content.url === 'string';
+  const isFile =
+    !entry.isRedacted &&
+    !entry.isDecryptionFailure &&
+    content.msgtype === 'm.file' &&
+    typeof content.url === 'string';
+
+  const senderMxcAvatar = useMemo(() => {
     if (!client) return null;
-    const room = useAccountsStore.getState().activeRoomId
-      ? client.getRoom(useAccountsStore.getState().activeRoomId!)
-      : null;
-    const member = room?.getMember(entry.sender);
-    return mxcToHttp(client, member?.getMxcAvatarUrl() ?? null, 40, 40);
-  }, [entry.sender, client]);
+    const room = activeRoomId ? client.getRoom(activeRoomId) : null;
+    return room?.getMember(entry.sender)?.getMxcAvatarUrl() ?? null;
+  }, [client, activeRoomId, entry.sender]);
 
   async function onReact(key: string) {
     if (!client || !activeRoomId) return;
@@ -150,12 +150,14 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
       </div>
       <div className="w-10 flex-shrink-0">
         {showHeader ? (
-          avatarUrl ? (
-            // eslint-disable-next-line jsx-a11y/alt-text
-            <img src={avatarUrl} className="h-10 w-10 rounded-full bg-[var(--color-surface)]" />
-          ) : (
-            <div className="h-10 w-10 rounded-full bg-[var(--color-accent)]" />
-          )
+          <AuthedImage
+            client={client}
+            mxc={senderMxcAvatar}
+            width={40}
+            height={40}
+            className="h-10 w-10 rounded-full bg-[var(--color-surface)]"
+            fallback={<div className="h-10 w-10 rounded-full bg-[var(--color-accent)]" />}
+          />
         ) : (
           <span className="invisible select-none text-[10px] text-[var(--color-text-faint)] group-hover:visible">
             {new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -205,6 +207,17 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
               </button>
             </div>
           </div>
+        ) : isImage && client ? (
+          <AuthedImage
+            client={client}
+            mxc={content.url}
+            width={480}
+            height={320}
+            alt={content.body ?? ''}
+            style={{ maxWidth: 480, maxHeight: 320, borderRadius: 8 }}
+          />
+        ) : isFile && client ? (
+          <FileDownloadLink client={client} mxc={content.url!} label={content.body ?? 'file'} />
         ) : (
           <div
             className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-[var(--color-text)] [&_a]:text-sky-400 [&_code]:rounded [&_code]:bg-[var(--color-code-bg)] [&_code]:px-1"
@@ -230,6 +243,24 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
         )}
       </div>
     </div>
+  );
+}
+
+function FileDownloadLink({
+  client,
+  mxc,
+  label,
+}: {
+  client: NonNullable<ReturnType<typeof accountManager.getClient>>;
+  mxc: string;
+  label: string;
+}) {
+  const url = useAuthedMedia(client, mxc);
+  if (!url) return <span className="text-[var(--color-text-muted)]">{label}</span>;
+  return (
+    <a href={url} download={label} target="_blank" rel="noopener" className="text-sky-400">
+      {label}
+    </a>
   );
 }
 
