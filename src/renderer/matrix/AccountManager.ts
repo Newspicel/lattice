@@ -109,6 +109,12 @@ class AccountManager {
       useTimelineStore.getState().onTimelineAppend(metadata.id, room.roomId, client);
     });
 
+    // Refresh room summaries when receipts update unread counts (our own
+    // outgoing read receipts, as well as echoes from other devices).
+    client.on(RoomEvent.Receipt, () => {
+      useRoomsStore.getState().refreshRooms(metadata.id, client);
+    });
+
     client.on(RoomEvent.LocalEchoUpdated, (_event, room) => {
       useTimelineStore.getState().onTimelineAppend(metadata.id, room.roomId, client);
     });

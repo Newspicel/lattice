@@ -1,5 +1,6 @@
 import { Settings } from 'lucide-react';
-import { SyncState } from 'matrix-js-sdk';
+import { useEffect, useState } from 'react';
+import { SyncState, UserEvent, type MatrixClient, type User } from 'matrix-js-sdk';
 import { cn } from '@/lib/utils';
 import { useAccountsStore } from '@/state/accounts';
 import { useUiStore } from '@/state/ui';
@@ -17,7 +18,13 @@ export function UserPanel() {
 
   const userId = account?.userId ?? '';
   const mxLocalpart = userId.replace(/^@/, '').split(':')[0] ?? '';
-  const primary = account?.displayName?.trim() || mxLocalpart || 'Not signed in';
+  const profile = useOwnProfile(client ?? null, userId);
+  const primary =
+    profile.displayName?.trim() ||
+    account?.displayName?.trim() ||
+    mxLocalpart ||
+    'Not signed in';
+  const avatarMxc = profile.avatarMxc ?? account?.avatarUrl ?? null;
   const { color, label } = statusIndicator(account?.syncState);
 
   return (
@@ -25,7 +32,7 @@ export function UserPanel() {
       <div className="relative h-8 w-8 shrink-0">
         <AuthedImage
           client={client}
-          mxc={account?.avatarUrl}
+          mxc={avatarMxc}
           width={32}
           height={32}
           className="h-8 w-8 rounded-full bg-[var(--color-surface)] object-cover"
@@ -58,6 +65,63 @@ export function UserPanel() {
       </button>
     </div>
   );
+}
+
+interface OwnProfile {
+  displayName: string | null;
+  avatarMxc: string | null;
+}
+
+function readProfile(client: MatrixClient, userId: string): OwnProfile {
+  const user = client.getUser(userId);
+  return {
+    displayName: user?.displayName ?? null,
+    avatarMxc: user?.avatarUrl ?? null,
+  };
+}
+
+function useOwnProfile(client: MatrixClient | null, userId: string): OwnProfile {
+  const [profile, setProfile] = useState<OwnProfile>({
+    displayName: null,
+    avatarMxc: null,
+  });
+
+  useEffect(() => {
+    if (!client || !userId) {
+      setProfile({ displayName: null, avatarMxc: null });
+      return;
+    }
+
+    setProfile(readProfile(client, userId));
+
+    let cancelled = false;
+    if (!client.getUser(userId)?.avatarUrl) {
+      client
+        .getProfileInfo(userId)
+        .then((info) => {
+          if (cancelled) return;
+          setProfile((prev) => ({
+            displayName: info?.displayname ?? prev.displayName,
+            avatarMxc: info?.avatar_url ?? prev.avatarMxc,
+          }));
+        })
+        .catch(() => {});
+    }
+
+    const onChange = (_event: unknown, user: User) => {
+      if (user.userId !== userId) return;
+      setProfile(readProfile(client, userId));
+    };
+    client.on(UserEvent.DisplayName, onChange);
+    client.on(UserEvent.AvatarUrl, onChange);
+    return () => {
+      cancelled = true;
+      client.off(UserEvent.DisplayName, onChange);
+      client.off(UserEvent.AvatarUrl, onChange);
+    };
+  }, [client, userId]);
+
+  return profile;
 }
 
 function InitialBadge({ text }: { text: string }) {

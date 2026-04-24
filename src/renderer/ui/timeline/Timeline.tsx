@@ -30,6 +30,20 @@ export function Timeline() {
     useTimelineStore.getState().onTimelineAppend(activeAccountId, activeRoomId, client);
   }, [activeAccountId, activeRoomId]);
 
+  // Clear unread markers while the user is viewing this room. Runs on room
+  // open and whenever a new event lands so subsequent messages don't re-mark
+  // the room as unread while it's still on screen.
+  useEffect(() => {
+    if (!activeAccountId || !activeRoomId) return;
+    const client = accountManager.getClient(activeAccountId);
+    const room = client?.getRoom(activeRoomId);
+    if (!client || !room) return;
+    const events = room.getLiveTimeline().getEvents();
+    const lastEvent = events[events.length - 1];
+    if (!lastEvent) return;
+    void client.sendReadReceipt(lastEvent);
+  }, [activeAccountId, activeRoomId, entries]);
+
   // Reset scroll anchoring on room switch so the new room always lands at the
   // bottom on first render.
   useEffect(() => {
