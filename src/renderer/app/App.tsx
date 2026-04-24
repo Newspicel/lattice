@@ -1,0 +1,69 @@
+import { useEffect, useState } from 'react';
+import { ServerRail } from '@/ui/shell/ServerRail';
+import { RoomList } from '@/ui/shell/RoomList';
+import { MainPane } from '@/ui/shell/MainPane';
+import { MemberList } from '@/ui/shell/MemberList';
+import { LoginView } from '@/ui/auth/LoginView';
+import { accountManager } from '@/matrix/AccountManager';
+import { useAccountsStore } from '@/state/accounts';
+import { useUiStore } from '@/state/ui';
+import { CallOverlay } from '@/ui/rtc/CallOverlay';
+import { ThreadPane } from '@/ui/timeline/ThreadPane';
+import { SettingsDialog } from '@/ui/settings/SettingsDialog';
+import { LoginAnotherDialog } from '@/ui/auth/LoginAnotherDialog';
+
+export function App() {
+  const [booting, setBooting] = useState(true);
+  const hasAccounts = useAccountsStore((s) => Object.keys(s.accounts).length > 0);
+  const memberListOpen = useUiStore((s) => s.memberListOpen);
+  const settingsOpen = useUiStore((s) => s.settingsOpen);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+  const loginAnotherOpen = useUiStore((s) => s.loginAnotherOpen);
+  const setLoginAnotherOpen = useUiStore((s) => s.setLoginAnotherOpen);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await accountManager.hydrateFromMain();
+      } catch (err) {
+        console.error('Failed to hydrate accounts:', err);
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    return window.native.notifications.onClicked(({ accountId, roomId }) => {
+      useAccountsStore.getState().setActiveAccount(accountId);
+      useAccountsStore.getState().setActiveRoom(roomId);
+    });
+  }, []);
+
+  if (booting) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-neutral-950 text-sm text-neutral-400">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!hasAccounts) return <LoginView />;
+
+  return (
+    <div className="flex h-full w-full select-none overflow-hidden bg-neutral-950 text-neutral-100">
+      <ServerRail />
+      <RoomList />
+      <MainPane />
+      <ThreadPane />
+      {memberListOpen && <MemberList />}
+      <CallOverlay />
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {loginAnotherOpen && <LoginAnotherDialog onClose={() => setLoginAnotherOpen(false)} />}
+    </div>
+  );
+}

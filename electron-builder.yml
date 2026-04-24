@@ -1,0 +1,42 @@
+appId: dev.matrix-client.app
+productName: Matrix Client
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.ts"
+  - "!tsconfig*.json"
+  - "!postcss.config.js"
+  - "!tailwind.config.ts"
+  - "!{.eslintrc*,.prettierrc*,.gitignore,.git,README.md,pnpm-lock.yaml}"
+  - "out/**/*"
+asarUnpack:
+  - "**/@matrix-org/**"
+  - "**/livekit-client/**"
+mac:
+  category: public.app-category.social-networking
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+dmg:
+  writeUpdateInfo: false
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Network
+  maintainer: matrix-client
+protocols:
+  - name: Matrix Client SSO
+    schemes:
+      - matrix-client
+npmRebuild: false

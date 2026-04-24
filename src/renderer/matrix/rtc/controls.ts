@@ -1,0 +1,29 @@
+// Call control facade. The concrete implementation lives in ./lifecycle which
+// is created in M6 once the LiveKit connection handshake is wired up.
+
+import { useRtcStore } from '@/state/rtc';
+
+export function toggleMicrophone(): void {
+  const call = useRtcStore.getState().activeCall;
+  if (!call) return;
+  useRtcStore.getState().patchActiveCall({ micMuted: !call.micMuted });
+  void import('./lifecycle').then((m) => m.applyMicState(!call.micMuted));
+}
+
+export function toggleCamera(): void {
+  const call = useRtcStore.getState().activeCall;
+  if (!call) return;
+  useRtcStore.getState().patchActiveCall({ cameraOn: !call.cameraOn });
+  void import('./lifecycle').then((m) => m.applyCameraState(!call.cameraOn));
+}
+
+export function toggleScreenShare(): void {
+  const call = useRtcStore.getState().activeCall;
+  if (!call) return;
+  useRtcStore.getState().patchActiveCall({ screenSharing: !call.screenSharing });
+  void import('./lifecycle').then((m) => m.applyScreenShareState(!call.screenSharing));
+}
+
+export function leaveCall(): void {
+  void import('./lifecycle').then((m) => m.leaveActiveCall());
+}
