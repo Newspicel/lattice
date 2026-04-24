@@ -2,6 +2,7 @@ import type { MatrixClient } from 'matrix-js-sdk';
 import { ClientEvent, RoomEvent, SyncState } from 'matrix-js-sdk';
 import type { AccountMetadata } from '@shared/types';
 import { buildMatrixClient, type ClientCredentials } from './createClient';
+import { buildSecretStorageCallbacks, forgetAccountSecrets } from './secretStorage';
 import { maybeNotify } from './notifications';
 import { useAccountsStore } from '@/state/accounts';
 import { useRoomsStore } from '@/state/rooms';
@@ -48,6 +49,7 @@ class AccountManager {
       accountId: metadata.id,
       credentials,
       cryptoStorageKey,
+      cryptoCallbacks: buildSecretStorageCallbacks(metadata.id),
     });
 
     await this.wireAndStart(metadata, client);
@@ -70,6 +72,7 @@ class AccountManager {
       accountId: metadata.id,
       credentials,
       cryptoStorageKey,
+      cryptoCallbacks: buildSecretStorageCallbacks(metadata.id),
     });
     await this.wireAndStart(metadata, client);
   }
@@ -114,20 +117,45 @@ class AccountManager {
       lazyLoadMembers: true,
       threadSupport: true,
     });
+
+    void this.tryRestoreKeyBackup(metadata.id, client);
+  }
+
+  /**
+   * On each boot, give the backup engine a chance to fetch historical keys
+   * for messages that pre-date this device's login. Safe no-op unless the
+   * backup decryption key is already cached (either loaded from SSSS by the
+   * user, or gossiped over from another verified device).
+   */
+  private async tryRestoreKeyBackup(accountId: string, client: MatrixClient): Promise<void> {
+    const crypto = client.getCrypto();
+    if (!crypto) return;
+    try {
+      const privateKey = await crypto.getSessionBackupPrivateKey();
+      if (!privateKey) return;
+      await crypto.checkKeyBackupAndEnable();
+      await crypto.restoreKeyBackup();
+    } catch (err) {
+      console.warn(`[backup ${accountId}] restore attempt failed`, err);
+    }
   }
 
   async removeAccount(accountId: string): Promise<void> {
     const entry = this.accounts.get(accountId);
     if (entry) {
-      entry.client.stopClient();
       try {
-        await entry.client.logout();
-      } catch {
+        // stopClient: true — invalidates the server-side session (device) AND
+        // tears the sync loop down locally.
+        await entry.client.logout(true);
+      } catch (err) {
         // Best effort — if the server is unreachable, still wipe locally.
+        console.warn(`[accounts ${accountId}] logout failed`, err);
+        entry.client.stopClient();
       }
       this.accounts.delete(accountId);
     }
     await window.native.accounts.delete(accountId);
+    await forgetAccountSecrets(accountId);
     useAccountsStore.getState().remove(accountId);
     useRoomsStore.getState().removeAccount(accountId);
   }

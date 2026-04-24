@@ -9,6 +9,8 @@ import {
   VerificationRequestEvent,
   VerifierEvent,
 } from 'matrix-js-sdk/lib/crypto-api/verification';
+import { decodeRecoveryKey } from 'matrix-js-sdk/lib/crypto-api/recovery-key';
+import { cacheRecoveryKey, createSecretStorageKey } from './secretStorage';
 
 export interface SasHandle {
   emoji: [string, string][];
@@ -113,13 +115,34 @@ async function waitForSas(verifier: Verifier): Promise<ShowSasCallbacks> {
 }
 
 /**
- * Ensure cross-signing + secret storage are set up. No-op if already ready.
- * Note: bootstrapSecretStorage may need interactive auth the first time, so
- * the caller has to be ready to handle the UIA callback.
+ * First-time-setup for a brand-new account: create SSSS + a key backup.
+ *
+ * Refuses to run if SSSS is already configured on the server — in that case
+ * this device must adopt the existing setup via `unlockWithRecoveryKey` or
+ * by being verified from another signed-in device (which gossips the keys
+ * over automatically). Calling `bootstrapSecretStorage` with
+ * `setupNewSecretStorage` in that state would overwrite the default key,
+ * breaking history decryption on every other device and the key backup.
  */
 export async function ensureCryptoBootstrapped(client: MatrixClient): Promise<void> {
   const crypto = client.getCrypto();
   if (!crypto) throw new Error('Crypto not initialised');
+
+  if (await crypto.isSecretStorageReady()) return;
+
+  // If SSSS is already configured on the server, refuse to run first-time
+  // setup *before* touching cross-signing: `bootstrapCrossSigning` would
+  // otherwise read the cross-signing secrets from SSSS, invoking
+  // `getSecretStorageKey` with no cached key and failing with the opaque
+  // "callback returned falsey" error.
+  const existingKeyId = await client.secretStorage.getDefaultKeyId();
+  if (existingKeyId) {
+    throw new Error(
+      'Secret storage is already configured on this account. ' +
+        'Verify this device from another signed-in session, or enter your recovery key, ' +
+        'so this client can adopt the existing backup instead of replacing it.',
+    );
+  }
 
   if (!(await crypto.isCrossSigningReady())) {
     await crypto.bootstrapCrossSigning({
@@ -128,9 +151,64 @@ export async function ensureCryptoBootstrapped(client: MatrixClient): Promise<vo
       },
     });
   }
-  if (!(await crypto.isSecretStorageReady())) {
-    await crypto.bootstrapSecretStorage({
-      setupNewKeyBackup: true,
+
+  await crypto.bootstrapSecretStorage({
+    createSecretStorageKey,
+    setupNewKeyBackup: true,
+  });
+}
+
+/**
+ * Adopt an existing SSSS setup using the user's recovery key.
+ *
+ * Validates the key against the server-side default key info, caches it so
+ * the SDK's `getSecretStorageKey` callback can satisfy future requests, then
+ * pulls the megolm backup decryption key into the crypto store. Past messages
+ * sent before this device logged in can then be restored from key backup.
+ */
+export async function unlockWithRecoveryKey(
+  client: MatrixClient,
+  accountId: string,
+  recoveryKey: string,
+): Promise<void> {
+  const crypto = client.getCrypto();
+  if (!crypto) throw new Error('Crypto not initialised');
+
+  const trimmed = recoveryKey.trim();
+  if (!trimmed) throw new Error('Enter your recovery key.');
+
+  let decoded: Uint8Array;
+  try {
+    decoded = decodeRecoveryKey(trimmed);
+  } catch {
+    throw new Error('That does not look like a valid recovery key.');
+  }
+
+  const entry = await client.secretStorage.getKey();
+  if (!entry) {
+    throw new Error('No secret storage is configured on the server for this account.');
+  }
+  const [keyId, keyInfo] = entry;
+  const ok = await client.secretStorage.checkKey(decoded, keyInfo);
+  if (!ok) {
+    throw new Error('Recovery key did not match. Double-check the characters and try again.');
+  }
+
+  cacheRecoveryKey(accountId, keyId, decoded);
+
+  if (!(await crypto.isCrossSigningReady())) {
+    await crypto.bootstrapCrossSigning({
+      authUploadDeviceSigningKeys: async () => {
+        /* UIA handled externally */
+      },
     });
+  }
+
+  await crypto.loadSessionBackupPrivateKeyFromSecretStorage();
+  await crypto.checkKeyBackupAndEnable();
+  try {
+    await crypto.restoreKeyBackup();
+  } catch (err) {
+    console.warn('Key backup restore completed with errors', err);
   }
 }

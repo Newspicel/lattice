@@ -5,6 +5,7 @@ import { accountManager } from '@/matrix/AccountManager';
 import {
   acceptIncomingVerification,
   ensureCryptoBootstrapped,
+  unlockWithRecoveryKey,
   verifyOwnDevice,
   type SasHandle,
 } from '@/matrix/verification';
@@ -20,11 +21,19 @@ interface Device {
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const activeAccountId = useAccountsStore((s) => s.activeAccountId);
+  const activeAccount = useAccountsStore((s) =>
+    activeAccountId ? s.accounts[activeAccountId] : null,
+  );
   const [devices, setDevices] = useState<Device[]>([]);
   const [bootstrapping, setBootstrapping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [incoming, setIncoming] = useState<VerificationRequest | null>(null);
   const [sas, setSas] = useState<SasHandle | null>(null);
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockMsg, setUnlockMsg] = useState<string | null>(null);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const client = activeAccountId ? (accountManager.getClient(activeAccountId) ?? null) : null;
 
@@ -96,6 +105,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     handle.onDone.then(() => setSas(null)).catch(() => setSas(null));
   }
 
+  async function onUnlockRecovery() {
+    if (!client || !activeAccountId) return;
+    setError(null);
+    setUnlockMsg(null);
+    setUnlocking(true);
+    try {
+      await unlockWithRecoveryKey(client, activeAccountId, recoveryKey);
+      setRecoveryKey('');
+      setUnlockMsg('Unlocked. Restoring encrypted history from key backup…');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  async function onSignOut() {
+    if (!activeAccountId) return;
+    setSigningOut(true);
+    try {
+      await accountManager.removeAccount(activeAccountId);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSigningOut(false);
+      setConfirmingSignOut(false);
+    }
+  }
+
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-[var(--color-backdrop)]">
       <div className="flex h-[80vh] w-[820px] flex-col rounded-xl bg-[var(--color-panel)] shadow-2xl">
@@ -111,14 +149,49 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
               Encryption
             </h3>
-            <button
-              type="button"
-              onClick={onBootstrap}
-              disabled={bootstrapping}
-              className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
-            >
-              {bootstrapping ? 'Setting up…' : 'Set up cross-signing & key backup'}
-            </button>
+            <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+              To decrypt messages sent before this device logged in, verify this device from
+              another signed-in session, or enter your recovery key below.
+            </p>
+            <div className="flex flex-col gap-2 rounded-md bg-[var(--color-surface)] p-3">
+              <label className="text-xs font-medium text-[var(--color-text-muted)]" htmlFor="recovery-key">
+                Recovery key
+              </label>
+              <input
+                id="recovery-key"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="EsT1 2AbC 3dEf …"
+                value={recoveryKey}
+                onChange={(e) => setRecoveryKey(e.target.value)}
+                className="rounded-md bg-[var(--color-panel)] px-3 py-1.5 font-mono text-sm outline-none ring-1 ring-[var(--color-divider)] focus:ring-[var(--color-accent)]"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onUnlockRecovery}
+                  disabled={unlocking || !recoveryKey.trim()}
+                  className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+                >
+                  {unlocking ? 'Unlocking…' : 'Unlock key backup'}
+                </button>
+                <button
+                  type="button"
+                  onClick={onBootstrap}
+                  disabled={bootstrapping}
+                  title="Only use this on a brand-new account with no existing backup"
+                  className="rounded-md bg-[var(--color-panel-2)] px-3 py-1.5 text-sm hover:bg-[var(--color-hover-overlay)] disabled:opacity-50"
+                >
+                  {bootstrapping ? 'Setting up…' : 'First-time setup'}
+                </button>
+              </div>
+              {unlockMsg && (
+                <div className="rounded-md bg-emerald-900/40 px-3 py-2 text-sm text-emerald-200">
+                  {unlockMsg}
+                </div>
+              )}
+            </div>
             {error && (
               <div className="mt-2 rounded-md bg-red-900/40 px-3 py-2 text-sm text-red-200">
                 {error}
@@ -126,7 +199,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             )}
           </section>
 
-          <section>
+          <section className="mb-6">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
               Devices
             </h3>
@@ -155,6 +228,52 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 </li>
               ))}
             </ul>
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Account
+            </h3>
+            <div className="flex flex-col gap-3 rounded-md border border-red-900/50 bg-red-950/30 p-3">
+              <div>
+                <div className="text-sm font-medium text-[var(--color-text-strong)]">
+                  Sign out of {activeAccount?.displayName || activeAccount?.userId || 'this account'}
+                </div>
+                <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                  Invalidates this session on the server and removes local account data from this
+                  computer. You will need your recovery key (or another verified session) to read
+                  encrypted history when you sign back in.
+                </p>
+              </div>
+              {confirmingSignOut ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onSignOut}
+                    disabled={signingOut}
+                    className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+                  >
+                    {signingOut ? 'Signing out…' : 'Confirm sign out'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingSignOut(false)}
+                    disabled={signingOut}
+                    className="rounded-md bg-[var(--color-panel-2)] px-3 py-1.5 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingSignOut(true)}
+                  className="self-start rounded-md bg-red-600/80 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-600"
+                >
+                  Sign out & remove account
+                </button>
+              )}
+            </div>
           </section>
         </div>
       </div>

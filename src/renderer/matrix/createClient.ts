@@ -1,4 +1,5 @@
 import { createClient, IndexedDBStore, type MatrixClient } from 'matrix-js-sdk';
+import type { CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 
 export interface ClientCredentials {
   userId: string;
@@ -13,6 +14,8 @@ export interface CreateClientOpts {
   credentials: ClientCredentials;
   /** Raw bytes used to derive the rust-crypto storage key. */
   cryptoStorageKey: Uint8Array;
+  /** Callbacks the crypto layer uses to read/write secret storage keys. */
+  cryptoCallbacks: CryptoCallbacks;
 }
 
 /**
@@ -26,13 +29,13 @@ export async function buildMatrixClient({
   accountId,
   credentials,
   cryptoStorageKey,
+  cryptoCallbacks,
 }: CreateClientOpts): Promise<MatrixClient> {
   const store = new IndexedDBStore({
     indexedDB: window.indexedDB,
     dbName: `mx-sync:${accountId}`,
     localStorage: window.localStorage,
   });
-  await store.startup();
 
   const client = createClient({
     baseUrl: credentials.homeserverUrl,
@@ -43,15 +46,61 @@ export async function buildMatrixClient({
     store,
     timelineSupport: true,
     useAuthorizationHeader: true,
+    cryptoCallbacks,
   });
+  await store.startup();
 
-  await client.initRustCrypto({
-    useIndexedDB: true,
-    cryptoDatabasePrefix: `mx-crypto:${accountId}`,
-    storageKey: cryptoStorageKey,
-  });
+  const cryptoDatabasePrefix = `mx-crypto:${accountId}`;
+  try {
+    await client.initRustCrypto({
+      useIndexedDB: true,
+      cryptoDatabasePrefix,
+      storageKey: cryptoStorageKey,
+    });
+  } catch (err) {
+    // `aead::Error` means the stored crypto DB was encrypted with a different
+    // storage key than the one we now hold — the data is unrecoverable, so wipe
+    // and retry with a fresh store. Historical E2EE keys are lost; backup can
+    // restore them once secret storage is set up.
+    if (isAeadError(err)) {
+      await wipeCryptoDatabases(cryptoDatabasePrefix);
+      await client.initRustCrypto({
+        useIndexedDB: true,
+        cryptoDatabasePrefix,
+        storageKey: cryptoStorageKey,
+      });
+    } else {
+      throw err;
+    }
+  }
 
   return client;
+}
+
+function isAeadError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('aead::Error') || msg.includes('Error encrypting or decrypting a value');
+}
+
+async function wipeCryptoDatabases(prefix: string): Promise<void> {
+  const factory = window.indexedDB;
+  // rust-crypto stores multiple DBs under the prefix (e.g. `<prefix>::matrix-sdk-crypto`
+  // and `<prefix>::matrix-sdk-crypto-meta`). `databases()` enumerates all so we
+  // can wipe each one that belongs to this account.
+  const databases = typeof factory.databases === 'function' ? await factory.databases() : [];
+  const matches = databases
+    .map((db) => db.name)
+    .filter((name): name is string => typeof name === 'string' && name.startsWith(prefix));
+  await Promise.all(matches.map((name) => deleteDatabase(factory, name)));
+}
+
+function deleteDatabase(factory: IDBFactory, name: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = factory.deleteDatabase(name);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => resolve();
+  });
 }
 
 /**
