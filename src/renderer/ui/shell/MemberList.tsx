@@ -5,6 +5,7 @@ import { useAccountsStore } from '@/state/accounts';
 import { useUiStore } from '@/state/ui';
 import { accountManager } from '@/matrix/AccountManager';
 import { AuthedImage } from '@/lib/mxc';
+import { InitialBadge } from '@/ui/primitives/InitialBadge';
 
 // Cinny-originated convention for naming power-level bands, used by several
 // clients for interop. If the room has no such state event, we render a flat
@@ -138,7 +139,9 @@ export function MemberList() {
                         width={32}
                         height={32}
                         className="h-6 w-6 rounded-full bg-[var(--color-surface)] object-cover"
-                        fallback={<InitialBadge text={m.name} />}
+                        fallback={
+                          <InitialBadge text={m.name} className="h-6 w-6 rounded-full text-[11px]" />
+                        }
                       />
                       <span className="flex-1 truncate">{m.name}</span>
                     </button>
@@ -150,15 +153,6 @@ export function MemberList() {
         )}
       </div>
     </aside>
-  );
-}
-
-function InitialBadge({ text }: { text: string }) {
-  const initial = text.replace(/^@/, '').charAt(0).toUpperCase() || '?';
-  return (
-    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-accent)] text-[11px] font-semibold text-white">
-      {initial}
-    </span>
   );
 }
 

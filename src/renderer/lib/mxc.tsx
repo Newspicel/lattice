@@ -43,16 +43,19 @@ export function useAuthedMedia(
   width = 96,
   height = 96,
 ): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+  // Track which mxc the loaded blob URL belongs to so a prop change
+  // immediately hides the previous source instead of showing it until the
+  // new fetch resolves.
+  const [loaded, setLoaded] = useState<{ mxc: string; url: string } | null>(null);
 
   useEffect(() => {
     if (!client || !mxc) {
-      setUrl(null);
+      setLoaded(null);
       return;
     }
     const httpUrl = client.mxcUrlToHttp(mxc, width, height, 'scale', false, true, true);
     if (!httpUrl) {
-      setUrl(null);
+      setLoaded(null);
       return;
     }
 
@@ -70,10 +73,10 @@ export function useAuthedMedia(
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
-        setUrl(objectUrl);
+        setLoaded({ mxc, url: objectUrl });
       })
       .catch(() => {
-        if (!cancelled) setUrl(null);
+        if (!cancelled) setLoaded(null);
       });
 
     return () => {
@@ -82,7 +85,7 @@ export function useAuthedMedia(
     };
   }, [client, mxc, width, height]);
 
-  return url;
+  return loaded && loaded.mxc === mxc ? loaded.url : null;
 }
 
 /**
@@ -95,18 +98,20 @@ export function useAuthedEncryptedMedia(
   file: EncryptedFile | null | undefined,
   mimetype: string | undefined,
 ): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+  // Same prop-vs-loaded check as useAuthedMedia so a file change doesn't
+  // surface the previously-loaded blob.
+  const [loaded, setLoaded] = useState<{ file: EncryptedFile; url: string } | null>(null);
 
   useEffect(() => {
     if (!client || !file) {
-      setUrl(null);
+      setLoaded(null);
       return;
     }
     // Encrypted media must be fetched at full size — the server can't resize
     // an opaque ciphertext. Pass 0/0 to get the download URL.
     const httpUrl = client.mxcUrlToHttp(file.url, undefined, undefined, undefined, false, true, true);
     if (!httpUrl) {
-      setUrl(null);
+      setLoaded(null);
       return;
     }
 
@@ -146,9 +151,9 @@ export function useAuthedEncryptedMedia(
       if (cancelled) return;
       const blob = new Blob([plaintext], mimetype ? { type: mimetype } : {});
       objectUrl = URL.createObjectURL(blob);
-      setUrl(objectUrl);
+      setLoaded({ file, url: objectUrl });
     })().catch(() => {
-      if (!cancelled) setUrl(null);
+      if (!cancelled) setLoaded(null);
     });
 
     return () => {
@@ -157,7 +162,7 @@ export function useAuthedEncryptedMedia(
     };
   }, [client, file, mimetype]);
 
-  return url;
+  return loaded && loaded.file === file ? loaded.url : null;
 }
 
 type AuthedImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {

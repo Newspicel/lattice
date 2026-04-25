@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Lock, SmilePlus, Reply, Pencil, Trash2, MessageSquare } from 'lucide-react';
 import type { TimelineEntry } from '@/state/timeline';
 import { sanitizeEventHtml } from '@/lib/markdown';
@@ -9,6 +9,7 @@ import { AuthedImage, useAuthedMedia, useAuthedEncryptedMedia, type EncryptedFil
 import { redactEvent, sendReaction, sendEdit } from '@/matrix/messageOps';
 import { PollView, isPollStartType } from './Poll';
 import { Button } from '@/ui/primitives/button';
+import { InitialBadge } from '@/ui/primitives/InitialBadge';
 import { Textarea } from '@/ui/primitives/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/primitives/tooltip';
 import {
@@ -33,6 +34,17 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
   const openLightbox = useUiStore((s) => s.openLightbox);
   const openProfileCard = useUiStore((s) => s.openProfileCard);
   const [editing, setEditing] = useState(false);
+  const [reactionMenuOpen, setReactionMenuOpen] = useState(false);
+  const [toolbarPinned, setToolbarPinned] = useState(false);
+
+  useEffect(() => {
+    if (reactionMenuOpen) {
+      setToolbarPinned(true);
+      return;
+    }
+    const t = setTimeout(() => setToolbarPinned(false), 200);
+    return () => clearTimeout(t);
+  }, [reactionMenuOpen]);
   const [draft, setDraft] = useState(
     typeof (entry.content as { body?: string }).body === 'string'
       ? ((entry.content as { body?: string }).body ?? '')
@@ -116,8 +128,8 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
 
   return (
     <div className={`group relative flex gap-3 ${showHeader ? '' : 'mt-0.5'} px-4 py-0.5 hover:bg-[var(--color-hover-overlay-subtle)]`}>
-      <div className="absolute right-4 top-0 z-10 hidden -translate-y-1/2 items-center gap-1 rounded-md bg-[var(--color-panel)] p-1 shadow-md group-hover:flex">
-        <DropdownMenu>
+      <div className={`absolute right-4 top-0 z-10 -translate-y-1/2 items-center gap-1 rounded-md bg-[var(--color-panel)] p-1 shadow-md ${toolbarPinned ? 'flex' : 'hidden group-hover:flex'}`}>
+        <DropdownMenu open={reactionMenuOpen} onOpenChange={setReactionMenuOpen}>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -136,8 +148,8 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
             </TooltipTrigger>
             <TooltipContent>Add reaction</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="min-w-36">
-            <div className="flex flex-wrap gap-1 p-1">
+          <DropdownMenuContent align="end" className="w-auto min-w-0">
+            <div className="flex flex-nowrap items-center gap-1 p-1">
               {quickReactions.map((r) => (
                 <button
                   key={r}
@@ -244,8 +256,13 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
               mxc={senderMxcAvatar}
               width={40}
               height={40}
-              className="h-10 w-10 rounded-full bg-[var(--color-surface)]"
-              fallback={<div className="h-10 w-10 rounded-full bg-[var(--color-accent)]" />}
+              className="h-10 w-10 rounded-full bg-[var(--color-surface)] object-cover"
+              fallback={
+                <InitialBadge
+                  text={entry.senderDisplayName}
+                  className="h-10 w-10 rounded-full text-base"
+                />
+              }
             />
           </button>
         ) : (
