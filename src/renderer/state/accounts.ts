@@ -38,8 +38,16 @@ export const useAccountsStore = create<AccountsState>((set) => ({
   remove: (accountId) =>
     set((state) => {
       const { [accountId]: _removed, ...rest } = state.accounts;
-      const nextActive = state.activeAccountId === accountId ? null : state.activeAccountId;
-      return { accounts: rest, activeAccountId: nextActive };
+      if (state.activeAccountId !== accountId) {
+        return { accounts: rest };
+      }
+      const nextActive = Object.keys(rest)[0] ?? null;
+      return {
+        accounts: rest,
+        activeAccountId: nextActive,
+        activeRoomId: null,
+        activeSpaceId: null,
+      };
     }),
 
   setSyncState: (accountId, syncState) =>

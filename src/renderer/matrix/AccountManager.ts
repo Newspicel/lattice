@@ -41,6 +41,11 @@ class AccountManager {
   }
 
   async addAccount(metadata: AccountMetadata, credentials: ClientCredentials): Promise<void> {
+    for (const existing of this.accounts.values()) {
+      if (existing.metadata.userId === metadata.userId) {
+        throw new Error(`Already signed in as ${metadata.userId}`);
+      }
+    }
     await window.native.accounts.upsert(metadata);
     await window.native.secrets.set(`access-token:${metadata.id}`, credentials.accessToken);
 

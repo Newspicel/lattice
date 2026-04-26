@@ -274,8 +274,10 @@ function AccountButton({
   notifs: AccountNotifs;
   onClick: () => void;
 }) {
+  const profile = useOwnProfile(client, account.userId);
   const hasUnread = notifs.unread > 0 || notifs.highlights > 0;
-  const label = account.displayName ?? account.userId;
+  const label = profile.displayName ?? account.displayName ?? account.userId;
+  const avatarMxc = profile.avatarMxc ?? account.avatarUrl ?? null;
   return (
     <RailItem active={false} unread={hasUnread}>
       <RailTooltip label={`Switch to ${label}`}>
@@ -287,7 +289,7 @@ function AccountButton({
         >
           <AuthedImage
             client={client}
-            mxc={account.avatarUrl}
+            mxc={avatarMxc}
             width={40}
             height={40}
             className="h-full w-full object-cover"

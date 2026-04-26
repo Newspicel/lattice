@@ -34,7 +34,7 @@ export function LoginAnotherDialog({ onClose }: { onClose: () => void }) {
             >
               <X className="h-4 w-4" />
             </DialogPrimitive.Close>
-            <LoginView />
+            <LoginView onAuthenticated={onClose} />
           </div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>

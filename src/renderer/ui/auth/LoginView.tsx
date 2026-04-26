@@ -12,7 +12,7 @@ import type { ClientCredentials } from '@/matrix/createClient';
 import { Button } from '@/ui/primitives/button';
 import { Input } from '@/ui/primitives/input';
 
-export function LoginView() {
+export function LoginView({ onAuthenticated }: { onAuthenticated?: () => void } = {}) {
   const [homeserver, setHomeserver] = useState('matrix.org');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -46,6 +46,15 @@ export function LoginView() {
       const baseUrl = await resolveHomeserverUrl(homeserver);
       const result = await fetchLoginFlows(baseUrl);
       setFlows(result);
+      // If the homeserver only offers SSO with a single unambiguous option,
+      // skip the extra click and open the browser straight away.
+      if (!result.hasPassword) {
+        if (result.providers.length === 1) {
+          launchSso(baseUrl, result.providers[0].id);
+        } else if (result.providers.length === 0 && result.hasPlainSso) {
+          launchSso(baseUrl);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -74,12 +83,16 @@ export function LoginView() {
     setError(null);
     try {
       const baseUrl = flows?.homeserverUrl ?? (await resolveHomeserverUrl(homeserver));
-      const url = buildSsoRedirectUrl(baseUrl, idpId);
-      setPendingSsoHomeserver(baseUrl);
-      window.open(url, '_blank', 'noopener');
+      launchSso(baseUrl, idpId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  function launchSso(baseUrl: string, idpId?: string) {
+    const url = buildSsoRedirectUrl(baseUrl, idpId);
+    setPendingSsoHomeserver(baseUrl);
+    window.open(url, '_blank', 'noopener');
   }
 
   async function finishLogin(credentials: ClientCredentials) {
@@ -91,6 +104,7 @@ export function LoginView() {
       createdAt: Date.now(),
     };
     await accountManager.addAccount(metadata, credentials);
+    onAuthenticated?.();
   }
 
   return (
