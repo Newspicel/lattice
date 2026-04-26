@@ -16,6 +16,7 @@ import {
   Track,
   ParticipantEvent,
   ConnectionState,
+  LocalAudioTrack,
 } from 'livekit-client';
 import type {
   Room as LivekitRoom,
@@ -322,16 +323,20 @@ async function applyVoicePrefsDiff(
   state: ReturnType<typeof useVoicePrefs.getState>,
   prev: ReturnType<typeof useVoicePrefs.getState>,
 ): Promise<void> {
-  if (state.micDeviceId !== prev.micDeviceId && state.micDeviceId !== DEFAULT_DEVICE) {
+  if (state.micDeviceId !== prev.micDeviceId) {
     try {
-      await lkRoom.switchActiveDevice('audioinput', state.micDeviceId, false);
+      const target =
+        state.micDeviceId === DEFAULT_DEVICE ? 'default' : state.micDeviceId;
+      await lkRoom.switchActiveDevice('audioinput', target, false);
     } catch (err) {
       console.warn('Switch mic failed:', err);
     }
   }
-  if (state.speakerDeviceId !== prev.speakerDeviceId && state.speakerDeviceId !== DEFAULT_DEVICE) {
+  if (state.speakerDeviceId !== prev.speakerDeviceId) {
     try {
-      await lkRoom.switchActiveDevice('audiooutput', state.speakerDeviceId, false);
+      const target =
+        state.speakerDeviceId === DEFAULT_DEVICE ? 'default' : state.speakerDeviceId;
+      await lkRoom.switchActiveDevice('audiooutput', target, false);
     } catch (err) {
       console.warn('Switch speaker failed:', err);
     }
@@ -345,6 +350,47 @@ async function applyVoicePrefsDiff(
   }
   if (state.outputVolume !== prev.outputVolume) {
     applyDeafenToVolumes(lkRoom, useDeafenStore.getState().deafened);
+  }
+  if (
+    state.echoCancellation !== prev.echoCancellation ||
+    state.noiseSuppression !== prev.noiseSuppression ||
+    state.autoGainControl !== prev.autoGainControl
+  ) {
+    await restartMicWithCurrentDsp(lkRoom);
+  }
+}
+
+async function restartMicWithCurrentDsp(lkRoom: LivekitRoom): Promise<void> {
+  const local = lkRoom.localParticipant;
+  if (!local.isMicrophoneEnabled) return;
+  const prefs = useVoicePrefs.getState();
+  const constraints = {
+    echoCancellation: prefs.echoCancellation,
+    noiseSuppression: prefs.noiseSuppression,
+    autoGainControl: prefs.autoGainControl,
+    deviceId:
+      prefs.micDeviceId === DEFAULT_DEVICE
+        ? undefined
+        : { exact: prefs.micDeviceId },
+  };
+  const pub = local
+    .getTrackPublications()
+    .find((p) => p.source === Track.Source.Microphone);
+  const track = pub?.track;
+  if (track instanceof LocalAudioTrack) {
+    try {
+      await track.restartTrack(constraints);
+      return;
+    } catch (err) {
+      console.warn('Mic restart with new DSP failed, falling back to republish:', err);
+    }
+  }
+  // Fallback: stop and re-enable the mic so LiveKit re-acquires with new opts.
+  try {
+    await local.setMicrophoneEnabled(false);
+    await local.setMicrophoneEnabled(true, constraints);
+  } catch (err) {
+    console.warn('Mic republish failed:', err);
   }
 }
 

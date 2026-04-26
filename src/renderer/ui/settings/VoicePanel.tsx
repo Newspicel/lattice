@@ -53,16 +53,6 @@ export function VoicePanel() {
           />
         </SettingsRow>
         <MicTester />
-        <SettingsRow
-          label="Input volume"
-          hint="Multiplier applied locally to your microphone before transmission."
-        >
-          <VolumeSlider
-            value={prefs.inputVolume}
-            onChange={prefs.setInputVolume}
-            ariaLabel="Input volume"
-          />
-        </SettingsRow>
       </SettingsSection>
 
       <SettingsSection label="Output">

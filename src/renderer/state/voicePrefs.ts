@@ -7,7 +7,6 @@ export interface VoicePrefsState {
   micDeviceId: string;
   speakerDeviceId: string;
   cameraDeviceId: string;
-  inputVolume: number;
   outputVolume: number;
   noiseSuppression: boolean;
   echoCancellation: boolean;
@@ -16,7 +15,6 @@ export interface VoicePrefsState {
   setMicDevice: (id: string) => void;
   setSpeakerDevice: (id: string) => void;
   setCameraDevice: (id: string) => void;
-  setInputVolume: (v: number) => void;
   setOutputVolume: (v: number) => void;
   setNoiseSuppression: (v: boolean) => void;
   setEchoCancellation: (v: boolean) => void;
@@ -29,7 +27,6 @@ export const useVoicePrefs = create<VoicePrefsState>()(
       micDeviceId: DEFAULT_DEVICE,
       speakerDeviceId: DEFAULT_DEVICE,
       cameraDeviceId: DEFAULT_DEVICE,
-      inputVolume: 1,
       outputVolume: 1,
       noiseSuppression: true,
       echoCancellation: true,
@@ -38,7 +35,6 @@ export const useVoicePrefs = create<VoicePrefsState>()(
       setMicDevice: (id) => set({ micDeviceId: id }),
       setSpeakerDevice: (id) => set({ speakerDeviceId: id }),
       setCameraDevice: (id) => set({ cameraDeviceId: id }),
-      setInputVolume: (v) => set({ inputVolume: clamp01(v) }),
       setOutputVolume: (v) => set({ outputVolume: clamp01(v) }),
       setNoiseSuppression: (v) => set({ noiseSuppression: v }),
       setEchoCancellation: (v) => set({ echoCancellation: v }),
