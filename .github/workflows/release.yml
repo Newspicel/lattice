@@ -182,18 +182,39 @@ jobs:
           echo "--- flake.nix (updated) ---"
           grep -E '^\s*(version|hash)\s*=' flake.nix
 
+      - name: Install Nix
+        if: steps.ver.outputs.skip != 'true'
+        uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Refresh flake.lock
+        if: steps.ver.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # Creates flake.lock on first run; otherwise fills in any missing
+          # inputs without mutating existing pins. Use `nix flake update` if
+          # you want to deliberately bump nixpkgs.
+          nix flake lock
+
+      - name: Verify flake builds
+        if: steps.ver.outputs.skip != 'true'
+        run: nix build .#lattice --no-link --print-build-logs
+
       - name: Commit and push
         if: steps.ver.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          if git diff --quiet flake.nix; then
-            echo "flake.nix already pinned to v${VERSION}; nothing to commit"
+          if git diff --quiet -- flake.nix flake.lock; then
+            echo "flake.nix and flake.lock already up to date for v${VERSION}; nothing to commit"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add flake.nix
+          git add flake.nix flake.lock
           git commit -m "chore(flake): bump to v${VERSION}"
           git push origin HEAD:main
