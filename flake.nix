@@ -47,7 +47,7 @@
             fetcherVersion = 2;
             # Replaced automatically by .github/workflows/update-flake.yml on
             # the first build / on every pnpm-lock.yaml change.
-            hash = lib.fakeHash;
+            hash = "sha256-fnL20Jd7nLwQvlnSKk0WyWF+ve5K3FyY+cK0t3iXXX0=";
           };
 
           nativeBuildInputs = [
