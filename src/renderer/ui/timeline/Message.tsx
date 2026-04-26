@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Lock, SmilePlus, Reply, Pencil, Trash2, MessageSquare } from 'lucide-react';
-import type { TimelineEntry } from '@/state/timeline';
+import { CornerDownRight, Lock, SmilePlus, Reply, Pencil, Trash2, MessageSquare } from 'lucide-react';
+import { useTimelineStore, type TimelineEntry } from '@/state/timeline';
 import { sanitizeEventHtml, renderPlainBody } from '@/lib/markdown';
 import { useAccountsStore } from '@/state/accounts';
 import { useUiStore } from '@/state/ui';
@@ -30,6 +30,7 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
   const activeRoomId = useAccountsStore((s) => s.activeRoomId);
   const client = activeAccountId ? accountManager.getClient(activeAccountId) : null;
   const setThreadRoot = useUiStore((s) => s.setThreadRoot);
+  const setReplyTo = useUiStore((s) => s.setReplyTo);
   const quickReactions = useUiStore((s) => s.quickReactions);
   const openLightbox = useUiStore((s) => s.openLightbox);
   const openProfileCard = useUiStore((s) => s.openProfileCard);
@@ -75,10 +76,20 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
       return '<em style="color: var(--color-text-faint)">decrypting…</em>';
 
     if (content.format === 'org.matrix.custom.html' && content.formatted_body) {
-      return sanitizeEventHtml(content.formatted_body);
+      return sanitizeEventHtml(stripMxReply(content.formatted_body));
     }
-    return renderPlainBody(content.body ?? '');
+    return renderPlainBody(stripPlainReplyFallback(content.body ?? ''));
   }, [entry.isRedacted, entry.isDecryptionFailure, isPendingDecryption, content.format, content.formatted_body, content.body]);
+
+  const replyTarget = useTimelineStore((s) => {
+    if (!entry.replyToId || !activeRoomId) return null;
+    const list = s.byRoom[activeRoomId];
+    return list?.find((e) => e.eventId === entry.replyToId) ?? null;
+  });
+  const replyPreview = useMemo(
+    () => (entry.replyToId ? formatReplyPreview(replyTarget) : null),
+    [entry.replyToId, replyTarget],
+  );
 
   const hasMediaSource =
     typeof content.url === 'string' || typeof content.file?.url === 'string';
@@ -127,7 +138,10 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
   }
 
   return (
-    <div className={`group relative flex gap-3 ${showHeader ? '' : 'mt-0.5'} px-4 py-0.5 hover:bg-[var(--color-hover-overlay-subtle)]`}>
+    <div
+      id={messageDomId(entry.eventId)}
+      className={`group relative flex gap-3 ${showHeader ? '' : 'mt-0.5'} px-4 py-0.5 hover:bg-[var(--color-hover-overlay-subtle)]`}
+    >
       <div className={`absolute right-4 top-0 z-10 -translate-y-1/2 items-center gap-px border border-[var(--color-divider)] bg-[var(--color-panel-2)] p-px ${toolbarPinned ? 'flex' : 'hidden group-hover:flex'}`}>
         <DropdownMenu open={reactionMenuOpen} onOpenChange={setReactionMenuOpen}>
           <Tooltip>
@@ -179,6 +193,21 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
               <Button
                 variant="ghost"
                 size="icon-xs"
+                onClick={() => setReplyTo(entry.eventId)}
+                aria-label="Reply"
+              />
+            }
+          >
+            <Reply className="h-4 w-4" />
+          </TooltipTrigger>
+          <TooltipContent>Reply</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setThreadRoot(entry.eventId)}
                 aria-label="Reply in thread"
               />
@@ -222,25 +251,6 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
               <TooltipContent>Delete</TooltipContent>
             </Tooltip>
           </>
-        )}
-        {!isMine && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => {
-                    /* Reply flow lives in composer in a later pass. */
-                  }}
-                  aria-label="Reply"
-                />
-              }
-            >
-              <Reply className="h-4 w-4" />
-            </TooltipTrigger>
-            <TooltipContent>Reply</TooltipContent>
-          </Tooltip>
         )}
       </div>
       <div className="w-10 flex-shrink-0">
@@ -287,6 +297,20 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
             </span>
             {entry.isEncrypted && <Lock className="h-3 w-3 text-emerald-500" />}
           </div>
+        )}
+        {replyPreview && entry.replyToId && (
+          <button
+            type="button"
+            onClick={() => jumpToMessage(entry.replyToId!)}
+            className="mb-1 flex w-full items-center gap-1.5 text-left text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            title="Jump to message"
+          >
+            <CornerDownRight className="h-3 w-3 shrink-0" />
+            <span className="shrink-0 font-semibold text-[var(--color-text-strong)]">
+              {replyPreview.sender}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{replyPreview.body}</span>
+          </button>
         )}
         {isPollStartType(entry.type) && client && activeRoomId ? (
           <PollView
@@ -409,4 +433,47 @@ function FileDownloadLink({
 function formatTime24(ts: number): string {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+export function messageDomId(eventId: string): string {
+  // Slashes / colons in matrix event IDs need encoding to be valid id characters.
+  return `msg-${encodeURIComponent(eventId)}`;
+}
+
+export function jumpToMessage(eventId: string): void {
+  const el = document.getElementById(messageDomId(eventId));
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('message-flash');
+  // Restart the animation by forcing a reflow before re-adding the class.
+  void el.offsetWidth;
+  el.classList.add('message-flash');
+  window.setTimeout(() => el.classList.remove('message-flash'), 1700);
+}
+
+function stripMxReply(html: string): string {
+  return html.replace(/<mx-reply>[\s\S]*?<\/mx-reply>/i, '');
+}
+
+function stripPlainReplyFallback(body: string): string {
+  const lines = body.split('\n');
+  let i = 0;
+  while (i < lines.length && lines[i].startsWith('> ')) i++;
+  while (i < lines.length && lines[i].trim() === '') i++;
+  return lines.slice(i).join('\n');
+}
+
+function formatReplyPreview(target: TimelineEntry | null): { sender: string; body: string } {
+  if (!target) return { sender: 'message', body: 'unavailable' };
+  const c = target.content as { body?: string; msgtype?: string } | null;
+  const cleaned = stripPlainReplyFallback((c?.body ?? '').trim());
+  let body = cleaned.replace(/\n+/g, ' ').trim();
+  if (!body) {
+    if (c?.msgtype === 'm.image') body = '[image]';
+    else if (c?.msgtype === 'm.file') body = '[file]';
+    else if (target.isRedacted) body = '[redacted]';
+    else body = '…';
+  }
+  if (body.length > 160) body = `${body.slice(0, 160)}…`;
+  return { sender: target.senderDisplayName, body };
 }

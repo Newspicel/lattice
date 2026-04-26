@@ -1,10 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { RoomMessageEventContent } from 'matrix-js-sdk/lib/@types/events';
-import { Paperclip, SendHorizontal, X, FileIcon, ImageIcon, Smile } from 'lucide-react';
+import { Paperclip, Reply, SendHorizontal, X, FileIcon, ImageIcon, Smile } from 'lucide-react';
 import { accountManager } from '@/matrix/AccountManager';
 import { useAccountsStore } from '@/state/accounts';
+import { useUiStore } from '@/state/ui';
+import { useTimelineStore, type TimelineEntry } from '@/state/timeline';
 import { composeTextContent } from '@/lib/markdown';
 import { uploadAndSendFile } from '@/matrix/attachments';
+import { sendReply } from '@/matrix/messageOps';
 import { Button } from '@/ui/primitives/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/primitives/tooltip';
 import { EmojiPicker } from '@/ui/primitives/emoji-picker';
@@ -44,9 +47,24 @@ export function Composer() {
   }>({ open: false, query: '', start: 0, index: 0, results: [] });
   const activeAccountId = useAccountsStore((s) => s.activeAccountId);
   const activeRoomId = useAccountsStore((s) => s.activeRoomId);
+  const replyToId = useUiStore((s) => s.replyToId);
+  const setReplyTo = useUiStore((s) => s.setReplyTo);
+  const replyTarget = useTimelineStore((s) => {
+    if (!activeRoomId || !replyToId) return null;
+    const entries = s.byRoom[activeRoomId];
+    return entries?.find((e) => e.eventId === replyToId) ?? null;
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const disabled = !activeAccountId || !activeRoomId;
+
+  const replyPreview = useMemo(() => formatReplyPreview(replyTarget), [replyTarget]);
+
+  useEffect(() => {
+    if (!replyToId) return;
+    const el = textareaRef.current;
+    if (el) el.focus();
+  }, [replyToId]);
 
   useLayoutEffect(() => {
     const ta = textareaRef.current;
@@ -74,7 +92,8 @@ export function Composer() {
     });
     setValue('');
     setAcState((s) => ({ ...s, open: false }));
-  }, [activeRoomId, activeAccountId]);
+    setReplyTo(null);
+  }, [activeRoomId, activeAccountId, setReplyTo]);
 
   function updateAutocomplete(text: string, cursor: number) {
     const detected = detectActiveShortcode(text, cursor);
@@ -120,8 +139,12 @@ export function Composer() {
     const pending = attachments;
     if (!body && pending.length === 0) return;
 
+    const replyId = replyToId;
+    const replyEntry = replyTarget;
+
     setValue('');
     setAttachments([]);
+    setReplyTo(null);
 
     try {
       for (const a of pending) {
@@ -129,14 +152,34 @@ export function Composer() {
         if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
       }
       if (body) {
-        const content = composeTextContent(body) as unknown as RoomMessageEventContent;
-        await client.sendMessage(activeRoomId!, content);
+        if (replyId) {
+          const targetContent = (replyEntry?.content ?? null) as
+            | { body?: string; formatted_body?: string }
+            | null;
+          await sendReply(
+            client,
+            activeRoomId!,
+            replyId,
+            body,
+            replyEntry
+              ? {
+                  sender: replyEntry.sender,
+                  body: targetContent?.body ?? '',
+                  formattedBody: targetContent?.formatted_body,
+                }
+              : null,
+          );
+        } else {
+          const content = composeTextContent(body) as unknown as RoomMessageEventContent;
+          await client.sendMessage(activeRoomId!, content);
+        }
       }
     } catch (err) {
       console.error('send failed', err);
       // Restore so the user doesn't lose their draft on transient failure.
       setValue((cur) => cur || body);
       setAttachments((cur) => (cur.length > 0 ? cur : pending));
+      if (replyId) setReplyTo(replyId);
     }
   }
 
@@ -224,6 +267,26 @@ export function Composer() {
 
   return (
     <div className="shrink-0 border-t border-[var(--color-divider)] bg-[var(--color-panel-2)] p-3">
+      {replyToId && (
+        <div className="flex items-center gap-2 border border-b-0 border-[var(--color-divider)] bg-[var(--color-panel)] px-3 py-1.5 text-xs text-[var(--color-text-muted)]">
+          <Reply className="h-3.5 w-3.5 shrink-0" />
+          <span className="shrink-0">Replying to</span>
+          <span className="shrink-0 font-semibold text-[var(--color-text-strong)]">
+            {replyPreview.sender}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[var(--color-text)]">
+            {replyPreview.body}
+          </span>
+          <button
+            type="button"
+            onClick={() => setReplyTo(null)}
+            aria-label="Cancel reply"
+            className="flex h-5 w-5 shrink-0 items-center justify-center text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <div
         className={`relative flex flex-col gap-2 border border-[var(--color-divider)] bg-[var(--color-panel)] px-3 py-2 transition-colors focus-within:border-[var(--color-text-faint)] ${
           disabled ? 'opacity-50' : ''
@@ -423,4 +486,24 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatReplyPreview(entry: TimelineEntry | null): { sender: string; body: string } {
+  if (!entry) return { sender: '', body: '' };
+  const content = entry.content as { body?: string; msgtype?: string } | null;
+  const raw = (content?.body ?? '').trim();
+  // Strip Matrix's `> <@user> ...` reply fallback if present.
+  const lines = raw.split('\n');
+  let i = 0;
+  while (i < lines.length && lines[i].startsWith('> ')) i++;
+  while (i < lines.length && lines[i].trim() === '') i++;
+  let body = lines.slice(i).join(' ').trim();
+  if (!body) {
+    if (content?.msgtype === 'm.image') body = '[image]';
+    else if (content?.msgtype === 'm.file') body = '[file]';
+    else if (entry.isRedacted) body = '[redacted]';
+    else body = '…';
+  }
+  if (body.length > 200) body = `${body.slice(0, 200)}…`;
+  return { sender: entry.senderDisplayName, body };
 }

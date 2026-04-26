@@ -35,6 +35,9 @@ interface UiState {
   threadRootId: string | null;
   setThreadRoot: (id: string | null) => void;
 
+  replyToId: string | null;
+  setReplyTo: (id: string | null) => void;
+
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
 
@@ -75,6 +78,9 @@ export const useUiStore = create<UiState>()(
 
       threadRootId: null,
       setThreadRoot: (id) => set({ threadRootId: id }),
+
+      replyToId: null,
+      setReplyTo: (id) => set({ replyToId: id }),
 
       settingsOpen: false,
       setSettingsOpen: (open) => set({ settingsOpen: open }),

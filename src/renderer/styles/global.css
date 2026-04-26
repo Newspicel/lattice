@@ -153,6 +153,19 @@ body {
   background: var(--color-scrollbar-thumb-hover);
 }
 
+/* Brief highlight pulse used when jumping to a message from a reply preview. */
+@keyframes message-flash {
+  0% {
+    background-color: var(--color-hover-overlay);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.message-flash {
+  animation: message-flash 1.6s ease-out;
+}
+
 /* macOS hiddenInset title bar drag region helpers */
 .titlebar-drag {
   -webkit-app-region: drag;
