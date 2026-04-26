@@ -20,6 +20,14 @@ export const IpcChannels = {
     Focus: 'window:focus',
     SetBadgeCount: 'window:set-badge-count',
   },
+  Updates: {
+    GetState: 'updates:get-state',
+    GetChannel: 'updates:get-channel',
+    SetChannel: 'updates:set-channel',
+    Check: 'updates:check',
+    QuitAndInstall: 'updates:quit-and-install',
+    StateChanged: 'updates:state-changed',
+  },
 } as const;
 
 export type IpcChannel =

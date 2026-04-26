@@ -135,6 +135,8 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.rpm
+            dist/*.blockmap
+            dist/nightly*.yml
           if-no-files-found: error
           retention-days: 14
 

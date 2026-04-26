@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc.js';
 import { registerNotificationHandlers } from './notifications.js';
 import { initTray } from './tray.js';
 import { handleDeepLinkUrl, registerDeepLinkProtocol } from './deep-link.js';
+import { initUpdater } from './updater.js';
 
 // Dev-only: expose CDP on localhost so chrome-devtools-mcp can attach.
 // Must be set before app is ready.
@@ -122,6 +123,9 @@ if (!singleInstanceLock) {
     registerDeepLinkProtocol();
     registerIpcHandlers();
     registerNotificationHandlers(getMainWindow);
+    initUpdater(getMainWindow).catch((err) => {
+      console.error('Failed to initialize auto-updater:', err);
+    });
 
     nativeTheme.on('updated', () => {
       mainWindow?.setBackgroundColor(currentChromeBg());
