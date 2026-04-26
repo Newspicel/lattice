@@ -82,6 +82,7 @@ function SubspaceCategory({
 }) {
   const [open, setOpen] = useState(true);
   const setCreateRoomOpen = useUiStore((s) => s.setCreateRoomOpen);
+  const setCreateSpaceOpen = useUiStore((s) => s.setCreateSpaceOpen);
   // When the category is collapsed but the active room lives inside it, keep
   // that one row visible so the user never loses sight of where they are.
   // As soon as they navigate elsewhere the row disappears with the rest.
@@ -103,18 +104,34 @@ function SubspaceCategory({
           )}
           <span className="truncate">{space.name}</span>
         </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setCreateRoomOpen({ parentSpaceId: space.roomId });
-          }}
-          className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--color-text-muted)] opacity-0 transition-opacity hover:text-[var(--color-text-strong)] focus-visible:opacity-100 group-hover/subspace:opacity-100"
-          title={`Create room in ${space.name}`}
-          aria-label={`Create room in ${space.name}`}
-        >
-          <Plus className="h-3 w-3" strokeWidth={2} />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--color-text-muted)] opacity-0 transition-opacity hover:text-[var(--color-text-strong)] focus-visible:opacity-100 group-hover/subspace:opacity-100 aria-expanded:opacity-100"
+                title={`Add to ${space.name}`}
+                aria-label={`Add to ${space.name}`}
+              />
+            }
+          >
+            <Plus className="h-3 w-3" strokeWidth={2} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={4} className="min-w-56">
+            <DropdownMenuItem
+              onClick={() => setCreateRoomOpen({ parentSpaceId: space.roomId })}
+            >
+              <Hash />
+              <span className="whitespace-nowrap">Create room</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setCreateSpaceOpen({ parentSpaceId: space.roomId })}
+            >
+              <FolderPlus />
+              <span className="whitespace-nowrap">Create category</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {(open || visibleRooms.length > 0) && (
         <ul className="space-y-px">
