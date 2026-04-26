@@ -48,7 +48,9 @@ interface AccountTabDef {
 const CLIENT_TABS: ClientTabDef[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'voice', label: 'Voice & Video', icon: Mic },
-  { id: 'updates', label: 'Updates', icon: Download },
+  ...(window.native.updatesDisabled
+    ? []
+    : [{ id: 'updates' as const, label: 'Updates', icon: Download }]),
 ];
 
 const ACCOUNT_TABS: AccountTabDef[] = [

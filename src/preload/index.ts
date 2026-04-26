@@ -10,6 +10,7 @@ import type {
 
 const nativeApi = {
   platform: process.platform,
+  updatesDisabled: process.env.LATTICE_DISABLE_AUTO_UPDATE === '1',
 
   secrets: {
     get: (key: string): Promise<string | null> =>
