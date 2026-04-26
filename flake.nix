@@ -52,6 +52,7 @@
 
           nativeBuildInputs = [
             nodejs
+            pkgs.pnpm
             pkgs.pnpmConfigHook
             pkgs.makeWrapper
           ] ++ lib.optionals stdenv.hostPlatform.isLinux [
