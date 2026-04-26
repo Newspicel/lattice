@@ -1,17 +1,12 @@
 import { Home, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import {
-  SyncState,
-  UserEvent,
-  type MatrixClient,
-  type User,
-} from 'matrix-js-sdk';
+import { SyncState, type MatrixClient } from 'matrix-js-sdk';
 import { cn } from '@/lib/utils';
 import { useAccountsStore } from '@/state/accounts';
 import { useRoomsStore, type RoomSummary } from '@/state/rooms';
 import { useUiStore } from '@/state/ui';
 import { accountManager } from '@/matrix/AccountManager';
 import { AuthedImage } from '@/lib/mxc';
+import { useOwnProfile } from '@/lib/profile';
 import { getTopLevelSpaces } from '@/lib/spaces';
 import type { AccountMetadata } from '@shared/types';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/primitives/tooltip';
@@ -162,63 +157,6 @@ function ProfileButton({
       </RailTooltip>
     </div>
   );
-}
-
-interface OwnProfile {
-  displayName: string | null;
-  avatarMxc: string | null;
-}
-
-function readProfile(client: MatrixClient, userId: string): OwnProfile {
-  const user = client.getUser(userId);
-  return {
-    displayName: user?.displayName ?? null,
-    avatarMxc: user?.avatarUrl ?? null,
-  };
-}
-
-function useOwnProfile(client: MatrixClient | null, userId: string): OwnProfile {
-  const [profile, setProfile] = useState<OwnProfile>({
-    displayName: null,
-    avatarMxc: null,
-  });
-
-  useEffect(() => {
-    if (!client || !userId) {
-      setProfile({ displayName: null, avatarMxc: null });
-      return;
-    }
-
-    setProfile(readProfile(client, userId));
-
-    let cancelled = false;
-    if (!client.getUser(userId)?.avatarUrl) {
-      client
-        .getProfileInfo(userId)
-        .then((info) => {
-          if (cancelled) return;
-          setProfile((prev) => ({
-            displayName: info?.displayname ?? prev.displayName,
-            avatarMxc: info?.avatar_url ?? prev.avatarMxc,
-          }));
-        })
-        .catch(() => {});
-    }
-
-    const onChange = (_event: unknown, user: User) => {
-      if (user.userId !== userId) return;
-      setProfile(readProfile(client, userId));
-    };
-    client.on(UserEvent.DisplayName, onChange);
-    client.on(UserEvent.AvatarUrl, onChange);
-    return () => {
-      cancelled = true;
-      client.off(UserEvent.DisplayName, onChange);
-      client.off(UserEvent.AvatarUrl, onChange);
-    };
-  }, [client, userId]);
-
-  return profile;
 }
 
 function statusIndicator(state: SyncState | undefined | null): {

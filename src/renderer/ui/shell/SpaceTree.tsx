@@ -74,6 +74,12 @@ function SubspaceCategory({
   client: MatrixClient | null;
 }) {
   const [open, setOpen] = useState(true);
+  // When the category is collapsed but the active room lives inside it, keep
+  // that one row visible so the user never loses sight of where they are.
+  // As soon as they navigate elsewhere the row disappears with the rest.
+  const visibleRooms = open
+    ? rooms
+    : rooms.filter((r) => r.roomId === activeRoomId);
   return (
     <div>
       <button
@@ -88,14 +94,14 @@ function SubspaceCategory({
         )}
         <span className="truncate">{space.name}</span>
       </button>
-      {open && (
+      {(open || visibleRooms.length > 0) && (
         <ul className="space-y-px">
-          {rooms.length === 0 ? (
+          {open && rooms.length === 0 ? (
             <li className="px-3 py-1 text-xs italic text-[var(--color-text-faint)]">
               Empty
             </li>
           ) : (
-            rooms.map((r) => (
+            visibleRooms.map((r) => (
               <RoomRow
                 key={r.roomId}
                 room={r}

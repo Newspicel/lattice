@@ -5,6 +5,7 @@ import { useRoomsStore, type RoomSummary } from '@/state/rooms';
 import { accountManager } from '@/matrix/AccountManager';
 import { getOrphanRooms, getSpaceTree } from '@/lib/spaces';
 import { RoomRow, SpaceTree } from '@/ui/shell/SpaceTree';
+import { HomeserverStatus } from '@/ui/shell/HomeserverStatus';
 import { useUiStore, viewKeyFor } from '@/state/ui';
 
 const EMPTY_ROOMS: RoomSummary[] = [];
@@ -83,6 +84,7 @@ export function RoomList() {
           />
         )}
       </div>
+      <HomeserverStatus />
     </aside>
   );
 }

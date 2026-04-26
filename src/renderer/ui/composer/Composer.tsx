@@ -8,6 +8,13 @@ import { uploadAndSendFile } from '@/matrix/attachments';
 import { Button } from '@/ui/primitives/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/primitives/tooltip';
 import { EmojiPicker } from '@/ui/primitives/emoji-picker';
+import {
+  detectActiveShortcode,
+  replaceShortcodeAtCursor,
+  replaceShortcodes,
+  searchShortcodes,
+  type ShortcodeMatch,
+} from '@/lib/emojiShortcodes';
 
 interface PendingAttachment {
   id: string;
@@ -28,6 +35,13 @@ export function Composer() {
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [acState, setAcState] = useState<{
+    open: boolean;
+    query: string;
+    start: number;
+    index: number;
+    results: ShortcodeMatch[];
+  }>({ open: false, query: '', start: 0, index: 0, results: [] });
   const activeAccountId = useAccountsStore((s) => s.activeAccountId);
   const activeRoomId = useAccountsStore((s) => s.activeRoomId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -59,13 +73,50 @@ export function Composer() {
       return [];
     });
     setValue('');
+    setAcState((s) => ({ ...s, open: false }));
   }, [activeRoomId, activeAccountId]);
+
+  function updateAutocomplete(text: string, cursor: number) {
+    const detected = detectActiveShortcode(text, cursor);
+    if (!detected) {
+      setAcState((s) => (s.open ? { ...s, open: false } : s));
+      return;
+    }
+    const results = searchShortcodes(detected.query, 8);
+    if (results.length === 0) {
+      setAcState((s) => (s.open ? { ...s, open: false } : s));
+      return;
+    }
+    setAcState({
+      open: true,
+      query: detected.query,
+      start: detected.start,
+      index: 0,
+      results,
+    });
+  }
+
+  function applyAutocomplete(match: ShortcodeMatch) {
+    const ta = textareaRef.current;
+    const cursor = ta?.selectionStart ?? value.length;
+    const next =
+      value.slice(0, acState.start) + match.emoji + value.slice(cursor);
+    const newCursor = acState.start + match.emoji.length;
+    setValue(next);
+    setAcState((s) => ({ ...s, open: false }));
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(newCursor, newCursor);
+    });
+  }
 
   async function send() {
     if (disabled) return;
     const client = accountManager.getClient(activeAccountId!);
     if (!client) return;
-    const body = value.trim();
+    const body = replaceShortcodes(value).trim();
     const pending = attachments;
     if (!body && pending.length === 0) return;
 
@@ -118,6 +169,35 @@ export function Composer() {
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (acState.open && acState.results.length > 0) {
+      if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+        e.preventDefault();
+        setAcState((s) => ({
+          ...s,
+          index: (s.index + 1) % s.results.length,
+        }));
+        return;
+      }
+      if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+        e.preventDefault();
+        setAcState((s) => ({
+          ...s,
+          index: (s.index - 1 + s.results.length) % s.results.length,
+        }));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const match = acState.results[acState.index];
+        if (match) applyAutocomplete(match);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setAcState((s) => ({ ...s, open: false }));
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void send();
@@ -145,10 +225,40 @@ export function Composer() {
   return (
     <div className="shrink-0 border-t border-[var(--color-divider)] bg-[var(--color-panel-2)] p-3">
       <div
-        className={`flex flex-col gap-2 border border-[var(--color-divider)] bg-[var(--color-panel)] px-3 py-2 transition-colors focus-within:border-[var(--color-text-faint)] ${
+        className={`relative flex flex-col gap-2 border border-[var(--color-divider)] bg-[var(--color-panel)] px-3 py-2 transition-colors focus-within:border-[var(--color-text-faint)] ${
           disabled ? 'opacity-50' : ''
         }`}
       >
+        {acState.open && acState.results.length > 0 && (
+          <div className="absolute bottom-full left-0 right-0 mb-1 z-30 max-h-64 overflow-y-auto border border-[var(--color-divider)] bg-[var(--color-panel-2)] shadow-lg">
+            <div className="border-b border-[var(--color-divider)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              Emoji matching :{acState.query}
+            </div>
+            {acState.results.map((r, i) => (
+              <button
+                key={r.code}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applyAutocomplete(r);
+                }}
+                onMouseEnter={() =>
+                  setAcState((s) => ({ ...s, index: i }))
+                }
+                className={`flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm transition-colors ${
+                  i === acState.index
+                    ? 'bg-[var(--color-hover-overlay)] text-[var(--color-text-strong)]'
+                    : 'text-[var(--color-text)]'
+                }`}
+              >
+                <span className="text-xl leading-none">{r.emoji}</span>
+                <span className="font-mono text-xs text-[var(--color-text-muted)]">
+                  :{r.code}:
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">
             {attachments.map((a) => (
@@ -187,7 +297,37 @@ export function Composer() {
           <textarea
             ref={textareaRef}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              const ta = e.target;
+              const cursor = ta.selectionStart ?? next.length;
+              const replaced = replaceShortcodeAtCursor(next, cursor);
+              if (replaced) {
+                setValue(replaced.text);
+                setAcState((s) => ({ ...s, open: false }));
+                requestAnimationFrame(() => {
+                  const el = textareaRef.current;
+                  if (!el) return;
+                  el.setSelectionRange(replaced.cursor, replaced.cursor);
+                });
+              } else {
+                setValue(next);
+                updateAutocomplete(next, cursor);
+              }
+            }}
+            onKeyUp={(e) => {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                const ta = e.currentTarget;
+                updateAutocomplete(ta.value, ta.selectionStart ?? ta.value.length);
+              }
+            }}
+            onClick={(e) => {
+              const ta = e.currentTarget;
+              updateAutocomplete(ta.value, ta.selectionStart ?? ta.value.length);
+            }}
+            onBlur={() => {
+              setAcState((s) => (s.open ? { ...s, open: false } : s));
+            }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             disabled={disabled}

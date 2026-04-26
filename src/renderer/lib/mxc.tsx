@@ -1,5 +1,5 @@
 import { useEffect, useState, type ImgHTMLAttributes } from 'react';
-import type { MatrixClient } from 'matrix-js-sdk';
+import { ClientEvent, SyncState, type MatrixClient } from 'matrix-js-sdk';
 
 /**
  * End-to-end encrypted attachment descriptor, as stored in the `file` field of
@@ -47,6 +47,10 @@ export function useAuthedMedia(
   // immediately hides the previous source instead of showing it until the
   // new fetch resolves.
   const [loaded, setLoaded] = useState<{ mxc: string; url: string } | null>(null);
+  // Bumped by the resync waiter so the effect re-runs after the homeserver
+  // recovers; without this a fetch that failed during an outage would stay
+  // null until something else changed the deps (or the app restarted).
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!client || !mxc) {
@@ -62,6 +66,9 @@ export function useAuthedMedia(
     let cancelled = false;
     let objectUrl: string | null = null;
     const token = client.getAccessToken();
+    const cleanup = makeResyncRetry(client, () => {
+      if (!cancelled) setRetry((n) => n + 1);
+    });
 
     fetch(httpUrl, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -76,14 +83,17 @@ export function useAuthedMedia(
         setLoaded({ mxc, url: objectUrl });
       })
       .catch(() => {
-        if (!cancelled) setLoaded(null);
+        if (cancelled) return;
+        setLoaded(null);
+        cleanup.arm();
       });
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
+      cleanup.dispose();
     };
-  }, [client, mxc, width, height]);
+  }, [client, mxc, width, height, retry]);
 
   return loaded && loaded.mxc === mxc ? loaded.url : null;
 }
@@ -101,6 +111,7 @@ export function useAuthedEncryptedMedia(
   // Same prop-vs-loaded check as useAuthedMedia so a file change doesn't
   // surface the previously-loaded blob.
   const [loaded, setLoaded] = useState<{ file: EncryptedFile; url: string } | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!client || !file) {
@@ -118,6 +129,9 @@ export function useAuthedEncryptedMedia(
     let cancelled = false;
     let objectUrl: string | null = null;
     const token = client.getAccessToken();
+    const cleanup = makeResyncRetry(client, () => {
+      if (!cancelled) setRetry((n) => n + 1);
+    });
 
     (async () => {
       const r = await fetch(httpUrl, {
@@ -153,14 +167,17 @@ export function useAuthedEncryptedMedia(
       objectUrl = URL.createObjectURL(blob);
       setLoaded({ file, url: objectUrl });
     })().catch(() => {
-      if (!cancelled) setLoaded(null);
+      if (cancelled) return;
+      setLoaded(null);
+      cleanup.arm();
     });
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
+      cleanup.dispose();
     };
-  }, [client, file, mimetype]);
+  }, [client, file, mimetype, retry]);
 
   return loaded && loaded.file === file ? loaded.url : null;
 }
@@ -195,6 +212,42 @@ export function AuthedImage({
   const url = file ? encUrl : plainUrl;
   if (!url) return fallback;
   return <img {...imgProps} src={url} />;
+}
+
+/**
+ * After a media fetch fails, wait for the next successful sync before
+ * retrying. Without this, a single network blip leaves the image stuck on
+ * `null` until the deps change (or the app restarts), because the fetch
+ * effect has nothing else to re-run on.
+ *
+ * `arm()` registers the listener — call it from the `.catch` so we only
+ * listen when there's actually something to retry. `dispose()` removes the
+ * listener and is safe to call whether or not it was armed.
+ */
+function makeResyncRetry(
+  client: MatrixClient,
+  onRecover: () => void,
+): { arm: () => void; dispose: () => void } {
+  let attached = false;
+  const handler = (state: SyncState) => {
+    if (state !== SyncState.Prepared && state !== SyncState.Syncing) return;
+    if (!attached) return;
+    client.off(ClientEvent.Sync, handler);
+    attached = false;
+    onRecover();
+  };
+  return {
+    arm: () => {
+      if (attached) return;
+      client.on(ClientEvent.Sync, handler);
+      attached = true;
+    },
+    dispose: () => {
+      if (!attached) return;
+      client.off(ClientEvent.Sync, handler);
+      attached = false;
+    },
+  };
 }
 
 function base64ToBytes(s: string): Uint8Array<ArrayBuffer> {

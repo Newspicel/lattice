@@ -105,7 +105,7 @@ function EmojiPickerBody({ onSelect }: { onSelect: (emoji: string) => void }) {
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="flex-1 overflow-y-auto px-2 py-1.5"
+        className="flex-1 overflow-y-auto px-2 pb-1.5"
       >
         {isSearching ? (
           searchResults.length === 0 ? (
@@ -124,7 +124,7 @@ function EmojiPickerBody({ onSelect }: { onSelect: (emoji: string) => void }) {
               }}
               className="pt-1.5 first:pt-0"
             >
-              <div className="sticky top-0 z-10 -mx-2 bg-[var(--color-panel-2)] px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              <div className="sticky top-0 z-10 -mx-2 bg-[var(--color-panel-2)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
                 {cat.label}
               </div>
               <EmojiGrid items={cat.items} onSelect={onSelect} />
