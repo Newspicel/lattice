@@ -18,6 +18,11 @@ import { CommandPalette } from '@/ui/shell/CommandPalette';
 import { TooltipProvider } from '@/ui/primitives/tooltip';
 import { Toaster } from '@/ui/primitives/sonner';
 import { useApplyTheme } from '@/lib/theme';
+import { StartDmDialog } from '@/ui/dialogs/StartDmDialog';
+import { CreateRoomDialog } from '@/ui/dialogs/CreateRoomDialog';
+import { CreateSpaceDialog } from '@/ui/dialogs/CreateSpaceDialog';
+import { RoomSettingsDialog } from '@/ui/dialogs/RoomSettingsDialog';
+import { SpaceSettingsDialog } from '@/ui/dialogs/SpaceSettingsDialog';
 
 export function App() {
   useApplyTheme();
@@ -105,6 +110,11 @@ export function App() {
         <ImageLightbox />
         <ProfileCard />
         <CommandPalette />
+        <StartDmDialog />
+        <CreateRoomDialog />
+        <CreateSpaceDialog />
+        <RoomSettingsDialog />
+        <SpaceSettingsDialog />
         {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
         {loginAnotherOpen && <LoginAnotherDialog onClose={() => setLoginAnotherOpen(false)} />}
       </div>

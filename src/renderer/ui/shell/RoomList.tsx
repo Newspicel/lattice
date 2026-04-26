@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import type { MatrixClient } from 'matrix-js-sdk';
+import { MessageSquarePlus, Plus, Settings as SettingsIcon, Hash, Sparkles } from 'lucide-react';
 import { useAccountsStore } from '@/state/accounts';
 import { useRoomsStore, type RoomSummary } from '@/state/rooms';
 import { accountManager } from '@/matrix/AccountManager';
@@ -7,6 +8,12 @@ import { getOrphanRooms, getSpaceTree } from '@/lib/spaces';
 import { RoomRow, SpaceTree } from '@/ui/shell/SpaceTree';
 import { HomeserverStatus } from '@/ui/shell/HomeserverStatus';
 import { useUiStore, viewKeyFor } from '@/state/ui';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/ui/primitives/dropdown-menu';
 
 const EMPTY_ROOMS: RoomSummary[] = [];
 
@@ -70,10 +77,11 @@ export function RoomList() {
       className="flex h-full w-64 shrink-0 flex-col border-r border-[var(--color-divider)] bg-[var(--color-panel)] text-sm"
       aria-label="Room list"
     >
-      <header className="flex h-12 shrink-0 items-center border-b border-[var(--color-divider)] px-4 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-strong)]">
-        <span className="truncate">
+      <header className="flex h-12 shrink-0 items-center gap-1 border-b border-[var(--color-divider)] px-4 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-strong)]">
+        <span className="flex-1 truncate">
           {activeSpace ? activeSpace.name : 'Direct Messages'}
         </span>
+        <RoomListActions activeSpace={activeSpace} />
       </header>
       <div className="flex-1 overflow-y-auto p-1.5">
         {activeSpace ? (
@@ -97,6 +105,72 @@ export function RoomList() {
       </div>
       <HomeserverStatus />
     </aside>
+  );
+}
+
+function RoomListActions({ activeSpace }: { activeSpace: RoomSummary | null }) {
+  const setStartDmOpen = useUiStore((s) => s.setStartDmOpen);
+  const setCreateRoomOpen = useUiStore((s) => s.setCreateRoomOpen);
+  const setCreateSpaceOpen = useUiStore((s) => s.setCreateSpaceOpen);
+  const setSpaceSettingsForId = useUiStore((s) => s.setSpaceSettingsForId);
+
+  return (
+    <>
+      {activeSpace && (
+        <button
+          type="button"
+          onClick={() => setSpaceSettingsForId(activeSpace.roomId)}
+          className="flex h-7 w-7 items-center justify-center text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
+          title="Space settings"
+          aria-label="Space settings"
+        >
+          <SettingsIcon className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)] aria-expanded:bg-[var(--color-hover-overlay)] aria-expanded:text-[var(--color-text-strong)]"
+              title={activeSpace ? 'Add to space' : 'New chat'}
+              aria-label={activeSpace ? 'Add to space' : 'New chat'}
+            />
+          }
+        >
+          <Plus className="h-4 w-4" strokeWidth={1.75} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={4}>
+          {activeSpace ? (
+            <DropdownMenuItem
+              onClick={() =>
+                setCreateRoomOpen({ parentSpaceId: activeSpace.roomId })
+              }
+            >
+              <Hash />
+              <span>Create room in space</span>
+            </DropdownMenuItem>
+          ) : (
+            <>
+              <DropdownMenuItem onClick={() => setStartDmOpen(true)}>
+                <MessageSquarePlus />
+                <span>Start direct message</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setCreateRoomOpen({ parentSpaceId: null })}
+              >
+                <Hash />
+                <span>Create room</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCreateSpaceOpen(true)}>
+                <Sparkles />
+                <span>Create space</span>
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 

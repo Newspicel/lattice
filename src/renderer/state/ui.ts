@@ -47,6 +47,25 @@ interface UiState {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 
+  startDmOpen: boolean;
+  setStartDmOpen: (open: boolean) => void;
+
+  // null = closed; { parentSpaceId: string | null } = open, optionally pinned
+  // to a parent space (when the user creates a room from inside a space).
+  createRoomOpen: { parentSpaceId: string | null } | null;
+  setCreateRoomOpen: (state: { parentSpaceId: string | null } | null) => void;
+
+  createSpaceOpen: boolean;
+  setCreateSpaceOpen: (open: boolean) => void;
+
+  // The room/space whose settings dialog is open, if any. Stored separately
+  // so a room can be active while its settings are closed (and vice versa).
+  roomSettingsForId: string | null;
+  setRoomSettingsForId: (roomId: string | null) => void;
+
+  spaceSettingsForId: string | null;
+  setSpaceSettingsForId: (roomId: string | null) => void;
+
   lightbox: LightboxImage | null;
   openLightbox: (image: LightboxImage) => void;
   closeLightbox: () => void;
@@ -90,6 +109,21 @@ export const useUiStore = create<UiState>()(
 
       commandPaletteOpen: false,
       setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+
+      startDmOpen: false,
+      setStartDmOpen: (open) => set({ startDmOpen: open }),
+
+      createRoomOpen: null,
+      setCreateRoomOpen: (state) => set({ createRoomOpen: state }),
+
+      createSpaceOpen: false,
+      setCreateSpaceOpen: (open) => set({ createSpaceOpen: open }),
+
+      roomSettingsForId: null,
+      setRoomSettingsForId: (roomId) => set({ roomSettingsForId: roomId }),
+
+      spaceSettingsForId: null,
+      setSpaceSettingsForId: (roomId) => set({ spaceSettingsForId: roomId }),
 
       lightbox: null,
       openLightbox: (image) => set({ lightbox: image }),

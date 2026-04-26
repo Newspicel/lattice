@@ -1,4 +1,4 @@
-import { Hash, Lock, Phone, Users, Volume2 } from 'lucide-react';
+import { Hash, Lock, Phone, Settings as SettingsIcon, Users, Volume2 } from 'lucide-react';
 import { useAccountsStore } from '@/state/accounts';
 import { useRoomsStore } from '@/state/rooms';
 import { Timeline } from '@/ui/timeline/Timeline';
@@ -13,6 +13,7 @@ export function MainPane() {
   const activeAccountId = useAccountsStore((s) => s.activeAccountId);
   const activeRoomId = useAccountsStore((s) => s.activeRoomId);
   const toggleMembers = useUiStore((s) => s.toggleMemberList);
+  const setRoomSettingsForId = useUiStore((s) => s.setRoomSettingsForId);
 
   const room = useRoomsStore((s) => {
     if (!activeAccountId || !activeRoomId) return null;
@@ -57,6 +58,16 @@ export function MainPane() {
               onClick={onStartCall}
             >
               <Phone className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          )}
+          {room && !room.isInvite && (
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
+              title="Room settings"
+              onClick={() => setRoomSettingsForId(room.roomId)}
+            >
+              <SettingsIcon className="h-4 w-4" strokeWidth={1.75} />
             </button>
           )}
           {!room?.isInvite && (
