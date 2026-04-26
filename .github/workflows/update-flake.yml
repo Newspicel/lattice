@@ -79,10 +79,18 @@ jobs:
           nix build .#lattice --no-link --print-build-logs
 
       - name: Commit and push
+        # Run even if the build failed — the refreshed lock + auto-patched
+        # hash are still useful, and pushing them avoids regenerating from
+        # scratch on the next attempt.
+        if: ${{ !cancelled() }}
         env:
           TAG: ${{ github.event.release.tag_name }}
+          BUILD_OUTCOME: ${{ job.status }}
         run: |
           set -euo pipefail
+          # Unstage anything earlier steps left staged so the diff check
+          # below reflects working-tree state, not the index.
+          git reset --quiet HEAD -- flake.nix flake.lock || true
           if git diff --quiet -- flake.nix flake.lock; then
             echo "Nothing to commit"
             exit 0
@@ -90,9 +98,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add flake.nix flake.lock
-          msg="chore(flake): refresh lock and pnpmDeps"
+          suffix=""
+          if [ "$BUILD_OUTCOME" = "failure" ]; then
+            suffix=" (build failed — needs follow-up)"
+          fi
+          msg="chore(flake): refresh lock and pnpmDeps${suffix}"
           if [ -n "${TAG:-}" ]; then
-            msg="chore(flake): refresh lock and pnpmDeps for ${TAG}"
+            msg="chore(flake): refresh lock and pnpmDeps for ${TAG}${suffix}"
           fi
           git commit -m "$msg"
           git push origin HEAD:main
