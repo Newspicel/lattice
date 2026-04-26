@@ -1,13 +1,14 @@
-// Call control facade. The concrete implementation lives in ./lifecycle which
-// is created in M6 once the LiveKit connection handshake is wired up.
+// Call control facade. The concrete implementation lives in ./lifecycle.
 
 import { useRtcStore } from '@/state/rtc';
+import { useDeafenStore } from '@/state/voicePrefs';
 
 export function toggleMicrophone(): void {
   const call = useRtcStore.getState().activeCall;
   if (!call) return;
+  // Optimistically update for snappy UI; lifecycle.refreshParticipants will reconcile.
   useRtcStore.getState().patchActiveCall({ micMuted: !call.micMuted });
-  void import('./lifecycle').then((m) => m.applyMicState(!call.micMuted));
+  void import('./lifecycle').then((m) => m.applyMicState(call.micMuted));
 }
 
 export function toggleCamera(): void {
@@ -22,6 +23,17 @@ export function toggleScreenShare(): void {
   if (!call) return;
   useRtcStore.getState().patchActiveCall({ screenSharing: !call.screenSharing });
   void import('./lifecycle').then((m) => m.applyScreenShareState(!call.screenSharing));
+}
+
+export function toggleDeafen(): void {
+  const call = useRtcStore.getState().activeCall;
+  if (!call) return;
+  // Auto-mute mic while deafened, like Discord.
+  const next = !call.deafened;
+  useDeafenStore.getState().setDeafened(next);
+  if (next && !call.micMuted) {
+    toggleMicrophone();
+  }
 }
 
 export function leaveCall(): void {

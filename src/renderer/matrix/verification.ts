@@ -1,4 +1,4 @@
-import type { MatrixClient } from 'matrix-js-sdk';
+import type { MatrixClient, MatrixEvent } from 'matrix-js-sdk';
 import type {
   ShowSasCallbacks,
   Verifier,
@@ -74,6 +74,14 @@ async function runSasFlow(request: VerificationRequest): Promise<SasHandle> {
 
 async function startSasVerifier(request: VerificationRequest): Promise<Verifier> {
   if (request.verifier) return request.verifier;
+
+  // The rust crypto layer throws "other device is unknown" if startVerification
+  // runs before the request reaches Ready (the other side hasn't echoed
+  // m.key.verification.ready yet, so the OlmMachine has no device record for it).
+  await waitForReady(request);
+
+  if (request.verifier) return request.verifier;
+
   return new Promise<Verifier>((resolve, reject) => {
     const onChange = async () => {
       if (request.verifier) {
@@ -90,6 +98,25 @@ async function startSasVerifier(request: VerificationRequest): Promise<Verifier>
     };
     request.on(VerificationRequestEvent.Change, onChange);
     request.startVerification('m.sas.v1').catch(reject);
+  });
+}
+
+async function waitForReady(request: VerificationRequest): Promise<void> {
+  if (request.phase >= VerificationPhase.Ready) return;
+  return new Promise<void>((resolve, reject) => {
+    const onChange = () => {
+      if (request.phase >= VerificationPhase.Ready && request.phase !== VerificationPhase.Cancelled) {
+        cleanup();
+        resolve();
+      } else if (request.phase === VerificationPhase.Cancelled) {
+        cleanup();
+        reject(new Error('Verification cancelled before the other device acknowledged it'));
+      }
+    };
+    const cleanup = () => {
+      request.off(VerificationRequestEvent.Change, onChange);
+    };
+    request.on(VerificationRequestEvent.Change, onChange);
   });
 }
 
@@ -161,10 +188,12 @@ export async function ensureCryptoBootstrapped(client: MatrixClient): Promise<vo
 /**
  * Adopt an existing SSSS setup using the user's recovery key.
  *
- * Validates the key against the server-side default key info, caches it so
+ * Validates the key against the server-side default key info and caches it so
  * the SDK's `getSecretStorageKey` callback can satisfy future requests, then
- * pulls the megolm backup decryption key into the crypto store. Past messages
- * sent before this device logged in can then be restored from key backup.
+ * loads the megolm backup decryption key out of SSSS. That last step fires
+ * `CryptoEvent.KeyBackupDecryptionKeyCached`; the AccountManager listener
+ * picks it up and runs the actual backup download + decryption sweep, which
+ * is shared with the post-verification gossip path.
  */
 export async function unlockWithRecoveryKey(
   client: MatrixClient,
@@ -205,10 +234,37 @@ export async function unlockWithRecoveryKey(
   }
 
   await crypto.loadSessionBackupPrivateKeyFromSecretStorage();
-  await crypto.checkKeyBackupAndEnable();
-  try {
-    await crypto.restoreKeyBackup();
-  } catch (err) {
-    console.warn('Key backup restore completed with errors', err);
+}
+
+/**
+ * Force a decryption retry on every event whose initial decryption failed.
+ *
+ * The rust crypto layer does auto-retry events it has tracked in its pending
+ * list, but we hit it from two angles where that isn't enough:
+ *  - keys imported via `restoreKeyBackup` aren't always paired with a
+ *    pending-list entry for every affected event (the user may have
+ *    paginated history that wasn't tracked, or the failure happened before
+ *    the OlmMachine was wired up);
+ *  - until we ran this sweep manually, the only way to recover those events
+ *    was to restart the client so the timeline got rebuilt from store with
+ *    the keys already available.
+ *
+ * Each successful retry fires `MatrixEventEvent.Decrypted`, which the
+ * AccountManager listener turns into a timeline rebuild.
+ */
+export function retryUndecryptedEvents(client: MatrixClient): void {
+  const crypto = client.getCrypto();
+  if (!crypto) return;
+  // The rust crypto instance returned by getCrypto() also implements the
+  // (internal) CryptoBackend that attemptDecryption needs.
+  const decryptor = crypto as unknown as Parameters<MatrixEvent['attemptDecryption']>[0];
+  for (const room of client.getRooms()) {
+    for (const event of room.getLiveTimeline().getEvents()) {
+      if (!event.isEncrypted()) continue;
+      if (!event.isDecryptionFailure()) continue;
+      void event.attemptDecryption(decryptor).catch(() => {
+        /* still no key — UI keeps showing "[unable to decrypt]" */
+      });
+    }
   }
 }

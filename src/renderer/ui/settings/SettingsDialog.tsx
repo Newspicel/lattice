@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import {
   Download,
   KeyRound,
+  Mic,
   MonitorSmartphone,
+  Plus,
   Settings as SettingsIcon,
   User,
   X,
@@ -11,9 +13,9 @@ import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { CryptoEvent } from 'matrix-js-sdk/lib/crypto-api/CryptoEvent';
 import type { VerificationRequest } from 'matrix-js-sdk/lib/crypto-api/verification';
 import { useAccountsStore } from '@/state/accounts';
+import { useUiStore } from '@/state/ui';
 import { accountManager } from '@/matrix/AccountManager';
 import { acceptIncomingVerification, type SasHandle } from '@/matrix/verification';
-import { AuthedImage } from '@/lib/mxc';
 import { useOwnProfile } from '@/lib/profile';
 import { cn } from '@/lib/utils';
 import { Button } from '@/ui/primitives/button';
@@ -22,50 +24,73 @@ import { DevicesPanel } from './DevicesPanel';
 import { EncryptionPanel } from './EncryptionPanel';
 import { GeneralPanel } from './GeneralPanel';
 import { UpdatesPanel } from './UpdatesPanel';
+import { VoicePanel } from './VoicePanel';
 
-type TabId = 'general' | 'updates' | 'account' | 'encryption' | 'devices';
+type ClientTabId = 'general' | 'voice' | 'updates';
+type AccountTabId = 'account' | 'encryption' | 'devices';
 
-interface TabDef {
-  id: TabId;
+type TabSelection =
+  | { scope: 'client'; id: ClientTabId }
+  | { scope: 'account'; accountId: string; id: AccountTabId };
+
+interface ClientTabDef {
+  id: ClientTabId;
   label: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
 }
 
-const CLIENT_TABS: TabDef[] = [
+interface AccountTabDef {
+  id: AccountTabId;
+  label: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+}
+
+const CLIENT_TABS: ClientTabDef[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
+  { id: 'voice', label: 'Voice & Video', icon: Mic },
   { id: 'updates', label: 'Updates', icon: Download },
 ];
 
-const ACCOUNT_TABS: TabDef[] = [
+const ACCOUNT_TABS: AccountTabDef[] = [
   { id: 'account', label: 'Account', icon: User },
   { id: 'encryption', label: 'Encryption', icon: KeyRound },
   { id: 'devices', label: 'Devices', icon: MonitorSmartphone },
 ];
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const activeAccountId = useAccountsStore((s) => s.activeAccountId);
-  const activeAccount = useAccountsStore((s) =>
-    activeAccountId ? s.accounts[activeAccountId] : null,
-  );
-  const client = activeAccountId ? (accountManager.getClient(activeAccountId) ?? null) : null;
-  const profile = useOwnProfile(client, activeAccount?.userId ?? '');
+  const accounts = useAccountsStore((s) => s.accounts);
+  const accountList = Object.values(accounts);
+  const setLoginAnotherOpen = useUiStore((s) => s.setLoginAnotherOpen);
 
-  const [tab, setTab] = useState<TabId>('general');
+  const [tab, setTab] = useState<TabSelection>({ scope: 'client', id: 'general' });
   const [incoming, setIncoming] = useState<VerificationRequest | null>(null);
   const [sas, setSas] = useState<SasHandle | null>(null);
 
-  // Incoming verification requests can arrive on any active account.
-  // Show them as a modal on top of the settings dialog.
+  // If the selected account disappears (sign-out), fall back to General.
   useEffect(() => {
-    if (!client) return;
-    const handler = (request: VerificationRequest) => {
-      if (!request.initiatedByMe) setIncoming(request);
-    };
-    client.on(CryptoEvent.VerificationRequestReceived, handler);
+    if (tab.scope === 'account' && !accounts[tab.accountId]) {
+      setTab({ scope: 'client', id: 'general' });
+    }
+  }, [tab, accounts]);
+
+  // Incoming verification requests can arrive on any signed-in account.
+  // Show them as a modal on top of the settings dialog regardless of which
+  // account's tab is currently selected.
+  useEffect(() => {
+    const offs: Array<() => void> = [];
+    for (const account of accountList) {
+      const c = accountManager.getClient(account.id);
+      if (!c) continue;
+      const handler = (request: VerificationRequest) => {
+        if (!request.initiatedByMe) setIncoming(request);
+      };
+      c.on(CryptoEvent.VerificationRequestReceived, handler);
+      offs.push(() => c.off(CryptoEvent.VerificationRequestReceived, handler));
+    }
     return () => {
-      client.off(CryptoEvent.VerificationRequestReceived, handler);
+      for (const off of offs) off();
     };
-  }, [client]);
+  }, [accountList]);
 
   function trackSas(handle: SasHandle) {
     setSas(handle);
@@ -79,13 +104,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     trackSas(handle);
   }
 
-  const accountLabel =
-    profile.displayName?.trim() ||
-    activeAccount?.displayName?.trim() ||
-    activeAccount?.userId.replace(/^@/, '').split(':')[0] ||
-    'Account';
-  const avatarMxc = profile.avatarMxc ?? activeAccount?.avatarUrl ?? null;
-  const fallbackInitial = accountLabel.charAt(0).toUpperCase() || '?';
+  const selectedAccountId = tab.scope === 'account' ? tab.accountId : null;
+  const selectedClient = selectedAccountId
+    ? (accountManager.getClient(selectedAccountId) ?? null)
+    : null;
 
   return (
     <DialogPrimitive.Root
@@ -104,20 +126,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--color-divider)] bg-[var(--color-panel-2)]">
             <div className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--color-divider)] px-3">
-              <div className="h-6 w-6 shrink-0 overflow-hidden bg-[var(--color-surface)]">
-                <AuthedImage
-                  client={client}
-                  mxc={avatarMxc}
-                  width={24}
-                  height={24}
-                  className="h-full w-full object-cover"
-                  fallback={
-                    <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase text-[var(--color-text-strong)]">
-                      {fallbackInitial}
-                    </span>
-                  }
-                />
-              </div>
+              <SettingsIcon
+                className="h-4 w-4 text-[var(--color-text-muted)]"
+                strokeWidth={1.75}
+              />
               <span className="truncate text-sm font-semibold text-[var(--color-text-strong)]">
                 Settings
               </span>
@@ -128,26 +140,41 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               aria-label="Settings sections"
             >
               <TabGroup label="Client">
-                {CLIENT_TABS.map((t) => (
-                  <TabButton
-                    key={t.id}
-                    tab={t}
-                    active={tab === t.id}
-                    onClick={() => setTab(t.id)}
-                  />
-                ))}
+                {CLIENT_TABS.map((t) => {
+                  const active = tab.scope === 'client' && tab.id === t.id;
+                  return (
+                    <TabButton
+                      key={t.id}
+                      label={t.label}
+                      icon={t.icon}
+                      active={active}
+                      onClick={() => setTab({ scope: 'client', id: t.id })}
+                    />
+                  );
+                })}
               </TabGroup>
-              <TabGroup label={accountLabel}>
-                {ACCOUNT_TABS.map((t) => (
-                  <TabButton
-                    key={t.id}
-                    tab={t}
-                    active={tab === t.id}
-                    onClick={() => setTab(t.id)}
-                  />
-                ))}
-              </TabGroup>
+              {accountList.map((account) => (
+                <AccountTabGroup
+                  key={account.id}
+                  accountId={account.id}
+                  selection={tab}
+                  onSelect={(id) => setTab({ scope: 'account', accountId: account.id, id })}
+                />
+              ))}
             </nav>
+            <div className="shrink-0 border-t border-[var(--color-divider)] p-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginAnotherOpen(true);
+                  onClose();
+                }}
+                className="flex h-8 w-full items-center gap-2 px-2 text-left text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
+              >
+                <Plus className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                <span className="truncate">Add account</span>
+              </button>
+            </div>
           </aside>
 
           <main className="relative flex min-w-0 flex-1 flex-col">
@@ -164,15 +191,22 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <X className="h-4 w-4" />
             </DialogPrimitive.Close>
 
-            {tab === 'general' && <GeneralPanel />}
-            {tab === 'updates' && <UpdatesPanel />}
-            {tab === 'account' && activeAccountId && (
-              <AccountPanel accountId={activeAccountId} client={client} onSignedOut={onClose} />
+            {tab.scope === 'client' && tab.id === 'general' && <GeneralPanel />}
+            {tab.scope === 'client' && tab.id === 'voice' && <VoicePanel />}
+            {tab.scope === 'client' && tab.id === 'updates' && <UpdatesPanel />}
+            {tab.scope === 'account' && tab.id === 'account' && (
+              <AccountPanel
+                accountId={tab.accountId}
+                client={selectedClient}
+                onSignedOut={() => setTab({ scope: 'client', id: 'general' })}
+              />
             )}
-            {tab === 'encryption' && (
-              <EncryptionPanel accountId={activeAccountId} client={client} />
+            {tab.scope === 'account' && tab.id === 'encryption' && (
+              <EncryptionPanel accountId={selectedAccountId} client={selectedClient} />
             )}
-            {tab === 'devices' && <DevicesPanel client={client} onSasStart={trackSas} />}
+            {tab.scope === 'account' && tab.id === 'devices' && (
+              <DevicesPanel client={selectedClient} onSasStart={trackSas} />
+            )}
           </main>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
@@ -203,15 +237,16 @@ function TabGroup({ label, children }: { label: string; children: React.ReactNod
 }
 
 function TabButton({
-  tab,
+  label,
+  icon: Icon,
   active,
   onClick,
 }: {
-  tab: TabDef;
+  label: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   active: boolean;
   onClick: () => void;
 }) {
-  const Icon = tab.icon;
   return (
     <button
       type="button"
@@ -225,8 +260,50 @@ function TabButton({
       )}
     >
       <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-      <span className="truncate">{tab.label}</span>
+      <span className="truncate">{label}</span>
     </button>
+  );
+}
+
+function AccountTabGroup({
+  accountId,
+  selection,
+  onSelect,
+}: {
+  accountId: string;
+  selection: TabSelection;
+  onSelect: (id: AccountTabId) => void;
+}) {
+  const account = useAccountsStore((s) => s.accounts[accountId]);
+  const client = accountManager.getClient(accountId) ?? null;
+  const profile = useOwnProfile(client, account?.userId ?? '');
+
+  if (!account) return null;
+
+  const label =
+    profile.displayName?.trim() ||
+    account.displayName?.trim() ||
+    account.userId.replace(/^@/, '').split(':')[0] ||
+    'Account';
+
+  return (
+    <TabGroup label={label}>
+      {ACCOUNT_TABS.map((t) => {
+        const active =
+          selection.scope === 'account' &&
+          selection.accountId === accountId &&
+          selection.id === t.id;
+        return (
+          <TabButton
+            key={t.id}
+            label={t.label}
+            icon={t.icon}
+            active={active}
+            onClick={() => onSelect(t.id)}
+          />
+        );
+      })}
+    </TabGroup>
   );
 }
 

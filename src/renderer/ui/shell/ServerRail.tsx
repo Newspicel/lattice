@@ -1,4 +1,4 @@
-import { Home, Plus } from 'lucide-react';
+import { Home } from 'lucide-react';
 import { SyncState, type MatrixClient } from 'matrix-js-sdk';
 import { cn } from '@/lib/utils';
 import { useAccountsStore } from '@/state/accounts';
@@ -40,7 +40,6 @@ export function ServerRail() {
   const setActiveAccount = useAccountsStore((s) => s.setActiveAccount);
   const setActiveSpace = useAccountsStore((s) => s.setActiveSpace);
   const byAccount = useRoomsStore((s) => s.byAccount);
-  const setLoginAnotherOpen = useUiStore((s) => s.setLoginAnotherOpen);
 
   const accountList = Object.values(accounts);
   const activeAccount = activeAccountId ? accounts[activeAccountId] : null;
@@ -78,7 +77,8 @@ export function ServerRail() {
             }}
           />
         ))}
-        {otherAccounts.length > 0 && <RailDivider />}
+      </div>
+      <div className="flex shrink-0 flex-col items-stretch gap-0.5 py-2">
         {otherAccounts.map((account) => {
           const client = accountManager.getClient(account.id);
           if (!client) return null;
@@ -92,17 +92,9 @@ export function ServerRail() {
             />
           );
         })}
-        <RailIconButton
-          label="Add account"
-          onClick={() => setLoginAnotherOpen(true)}
-          icon={<Plus className="h-4 w-4" />}
-        />
+        {otherAccounts.length > 0 && <RailDivider />}
+        {activeAccount && <ProfileButton account={activeAccount} client={activeClient} />}
       </div>
-      {activeAccount && (
-        <div className="flex shrink-0 flex-col items-stretch border-t border-[var(--color-divider)]">
-          <ProfileButton account={activeAccount} client={activeClient} />
-        </div>
-      )}
     </nav>
   );
 }
@@ -357,31 +349,6 @@ function RailDivider() {
     <div aria-hidden className="my-1.5 flex justify-center">
       <span className="h-px w-6 bg-[var(--color-divider)]" />
     </div>
-  );
-}
-
-function RailIconButton({
-  label,
-  onClick,
-  icon,
-}: {
-  label: string;
-  onClick: () => void;
-  icon: React.ReactNode;
-}) {
-  return (
-    <RailItem active={false}>
-      <RailTooltip label={label}>
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={label}
-          className="flex h-10 w-10 items-center justify-center text-[var(--color-text-faint)] transition-colors duration-150 hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
-        >
-          {icon}
-        </button>
-      </RailTooltip>
-    </RailItem>
   );
 }
 
