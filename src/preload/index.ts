@@ -1,7 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { IpcChannels } from '../shared/ipc-channels.js';
-import type { AccountMetadata, NotificationPayload } from '../shared/types.js';
+import type {
+  AccountMetadata,
+  NotificationPayload,
+  UpdateChannel,
+  UpdateState,
+} from '../shared/types.js';
 
 const nativeApi = {
   platform: process.platform,
@@ -46,6 +51,20 @@ const nativeApi = {
         cb(payload);
       ipcRenderer.on(IpcChannels.DeepLink.SsoCallback, listener);
       return () => ipcRenderer.off(IpcChannels.DeepLink.SsoCallback, listener);
+    },
+  },
+
+  updates: {
+    getState: (): Promise<UpdateState> => ipcRenderer.invoke(IpcChannels.Updates.GetState),
+    getChannel: (): Promise<UpdateChannel> => ipcRenderer.invoke(IpcChannels.Updates.GetChannel),
+    setChannel: (channel: UpdateChannel): Promise<UpdateChannel> =>
+      ipcRenderer.invoke(IpcChannels.Updates.SetChannel, channel),
+    check: (): Promise<UpdateState> => ipcRenderer.invoke(IpcChannels.Updates.Check),
+    quitAndInstall: (): Promise<void> => ipcRenderer.invoke(IpcChannels.Updates.QuitAndInstall),
+    onStateChanged: (cb: (state: UpdateState) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, state: UpdateState) => cb(state);
+      ipcRenderer.on(IpcChannels.Updates.StateChanged, listener);
+      return () => ipcRenderer.off(IpcChannels.Updates.StateChanged, listener);
     },
   },
 };

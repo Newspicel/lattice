@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  Download,
   KeyRound,
   MonitorSmartphone,
   Settings as SettingsIcon,
@@ -20,8 +21,9 @@ import { AccountPanel } from './AccountPanel';
 import { DevicesPanel } from './DevicesPanel';
 import { EncryptionPanel } from './EncryptionPanel';
 import { GeneralPanel } from './GeneralPanel';
+import { UpdatesPanel } from './UpdatesPanel';
 
-type TabId = 'general' | 'account' | 'encryption' | 'devices';
+type TabId = 'general' | 'updates' | 'account' | 'encryption' | 'devices';
 
 interface TabDef {
   id: TabId;
@@ -31,6 +33,7 @@ interface TabDef {
 
 const CLIENT_TABS: TabDef[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
+  { id: 'updates', label: 'Updates', icon: Download },
 ];
 
 const ACCOUNT_TABS: TabDef[] = [
@@ -162,6 +165,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </DialogPrimitive.Close>
 
             {tab === 'general' && <GeneralPanel />}
+            {tab === 'updates' && <UpdatesPanel />}
             {tab === 'account' && activeAccountId && (
               <AccountPanel accountId={activeAccountId} client={client} onSignedOut={onClose} />
             )}

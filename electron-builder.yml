@@ -26,8 +26,6 @@ mac:
   gatekeeperAssess: false
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
-dmg:
-  writeUpdateInfo: false
 linux:
   target:
     - AppImage
