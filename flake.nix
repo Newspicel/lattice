@@ -18,7 +18,6 @@
           # mismatched Electron breaks the matrix-sdk-crypto-wasm V8 ABI.
           electron = pkgs.electron_41;
           nodejs = pkgs.nodejs_22;
-          pnpm = pkgs.pnpm;
         in
         stdenv.mkDerivation (finalAttrs: {
           pname = "lattice";
@@ -40,16 +39,20 @@
             ];
           };
 
-          pnpmDeps = pnpm.fetchDeps {
+          pnpmDeps = pkgs.fetchPnpmDeps {
             inherit (finalAttrs) pname version src;
-            # Replace with `nix hash convert --to sri --hash-algo sha256 ...`
-            # output after the first build fails with a hash mismatch.
+            # `fetcherVersion = 2` is the current default for pnpm-lock v9
+            # lockfiles; pin it explicitly so a future nixpkgs default flip
+            # doesn't silently invalidate the hash.
+            fetcherVersion = 2;
+            # Replaced automatically by .github/workflows/update-flake.yml on
+            # the first build / on every pnpm-lock.yaml change.
             hash = lib.fakeHash;
           };
 
           nativeBuildInputs = [
             nodejs
-            pnpm.configHook
+            pkgs.pnpmConfigHook
             pkgs.makeWrapper
           ] ++ lib.optionals stdenv.hostPlatform.isLinux [
             pkgs.copyDesktopItems

@@ -46,6 +46,11 @@ jobs:
       - name: Update flake inputs
         run: nix flake update
 
+      - name: Stage in-progress changes
+        # `nix build` warns about a dirty git tree and may evaluate against
+        # the committed (stale) version of files. Staging avoids both.
+        run: git add flake.nix flake.lock
+
       - name: Build (and patch pnpmDeps hash on lockfile drift)
         run: |
           set +e
@@ -70,6 +75,7 @@ jobs:
           sed -i "s|hash = lib\.fakeHash;|hash = \"${expected}\";|" flake.nix
           sed -i -E "s|hash = \"sha256-[A-Za-z0-9+/=]+\";|hash = \"${expected}\";|" flake.nix
           grep -E '^\s*hash\s*=' flake.nix
+          git add flake.nix
           nix build .#lattice --no-link --print-build-logs
 
       - name: Commit and push
