@@ -29,8 +29,12 @@ export function RoomList() {
     [allRooms, activeSpaceId],
   );
 
-  const homeRooms = useMemo(
-    () => (activeSpaceId ? [] : getHomeRooms(allRooms)),
+  const homeDms = useMemo(
+    () => (activeSpaceId ? [] : getHomeDms(allRooms)),
+    [allRooms, activeSpaceId],
+  );
+  const homeOrphans = useMemo(
+    () => (activeSpaceId ? [] : getHomeOrphans(allRooms)),
     [allRooms, activeSpaceId],
   );
   const dmRequests = useMemo(
@@ -49,13 +53,13 @@ export function RoomList() {
     if (activeRoomId) return;
     const candidateIds = activeSpace
       ? flattenSpaceRoomIds(allRooms, activeSpace)
-      : [...homeRooms, ...dmRequests].map((r) => r.roomId);
+      : [...homeDms, ...homeOrphans, ...dmRequests].map((r) => r.roomId);
     if (candidateIds.length === 0) return;
     const remembered = lastRoomByView[viewKey];
     const pick =
       remembered && candidateIds.includes(remembered) ? remembered : candidateIds[0];
     setActiveRoom(pick);
-  }, [activeAccountId, viewKey, activeRoomId, activeSpace, allRooms, homeRooms, dmRequests, lastRoomByView, setActiveRoom]);
+  }, [activeAccountId, viewKey, activeRoomId, activeSpace, allRooms, homeDms, homeOrphans, dmRequests, lastRoomByView, setActiveRoom]);
 
   useEffect(() => {
     if (viewKey && activeRoomId) rememberRoomForView(viewKey, activeRoomId);
@@ -82,7 +86,8 @@ export function RoomList() {
           />
         ) : (
           <HomeView
-            rooms={homeRooms}
+            dms={homeDms}
+            orphans={homeOrphans}
             requests={dmRequests}
             activeRoomId={activeRoomId}
             onSelect={setActiveRoom}
@@ -95,12 +100,16 @@ export function RoomList() {
   );
 }
 
-function getHomeRooms(rooms: RoomSummary[]): RoomSummary[] {
+function getHomeDms(rooms: RoomSummary[]): RoomSummary[] {
   const dms = rooms.filter((r) => !r.isSpace && r.isDirect && !r.isInvite);
-  const orphans = getOrphanRooms(rooms);
-  const merged = [...dms, ...orphans];
-  merged.sort((a, b) => b.lastActivity - a.lastActivity);
-  return merged;
+  dms.sort((a, b) => b.lastActivity - a.lastActivity);
+  return dms;
+}
+
+function getHomeOrphans(rooms: RoomSummary[]): RoomSummary[] {
+  const orphans = getOrphanRooms(rooms).filter((r) => !r.isInvite);
+  orphans.sort((a, b) => b.lastActivity - a.lastActivity);
+  return orphans;
 }
 
 function getDmRequests(rooms: RoomSummary[]): RoomSummary[] {
@@ -119,19 +128,21 @@ function flattenSpaceRoomIds(rooms: RoomSummary[], space: RoomSummary): string[]
 }
 
 function HomeView({
-  rooms,
+  dms,
+  orphans,
   requests,
   activeRoomId,
   onSelect,
   client,
 }: {
-  rooms: RoomSummary[];
+  dms: RoomSummary[];
+  orphans: RoomSummary[];
   requests: RoomSummary[];
   activeRoomId: string | null;
   onSelect: (roomId: string) => void;
   client: MatrixClient | null;
 }) {
-  if (rooms.length === 0 && requests.length === 0) {
+  if (dms.length === 0 && orphans.length === 0 && requests.length === 0) {
     return (
       <p className="px-2 pt-4 text-xs italic text-[var(--color-text-faint)]">
         No direct messages yet.
@@ -162,24 +173,57 @@ function HomeView({
           </ul>
         </div>
       )}
-      {rooms.length > 0 && (
-        <div>
-          <div className="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-            Direct messages
-          </div>
-          <ul className="space-y-px">
-            {rooms.map((r) => (
-              <RoomRow
-                key={r.roomId}
-                room={r}
-                active={r.roomId === activeRoomId}
-                onClick={() => onSelect(r.roomId)}
-                client={client}
-              />
-            ))}
-          </ul>
-        </div>
+      {dms.length > 0 && (
+        <RoomSection
+          label="Direct messages"
+          rooms={dms}
+          activeRoomId={activeRoomId}
+          onSelect={onSelect}
+          client={client}
+        />
       )}
+      {orphans.length > 0 && (
+        <RoomSection
+          label="Rooms"
+          rooms={orphans}
+          activeRoomId={activeRoomId}
+          onSelect={onSelect}
+          client={client}
+        />
+      )}
+    </div>
+  );
+}
+
+function RoomSection({
+  label,
+  rooms,
+  activeRoomId,
+  onSelect,
+  client,
+}: {
+  label: string;
+  rooms: RoomSummary[];
+  activeRoomId: string | null;
+  onSelect: (roomId: string) => void;
+  client: MatrixClient | null;
+}) {
+  return (
+    <div>
+      <div className="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+        {label}
+      </div>
+      <ul className="space-y-px">
+        {rooms.map((r) => (
+          <RoomRow
+            key={r.roomId}
+            room={r}
+            active={r.roomId === activeRoomId}
+            onClick={() => onSelect(r.roomId)}
+            client={client}
+          />
+        ))}
+      </ul>
     </div>
   );
 }

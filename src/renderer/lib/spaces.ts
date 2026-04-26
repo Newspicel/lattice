@@ -51,17 +51,17 @@ function collectDescendantRooms(
 }
 
 export function getOrphanRooms(rooms: RoomSummary[]): RoomSummary[] {
+  // A room is "in a space" only when a visible space actually lists it as a
+  // child. The room-side m.space.parent state is just a hint — relying on it
+  // would hide rooms whose declared parent space the user can't see (e.g.
+  // because they never joined it, or the space stopped claiming the room).
   const inSomeSpace = new Set<string>();
   for (const r of rooms) {
     if (!r.isSpace) continue;
     for (const childId of r.spaceChildIds) inSomeSpace.add(childId);
   }
   return rooms.filter(
-    (r) =>
-      !r.isSpace &&
-      !r.isDirect &&
-      r.parentSpaceIds.length === 0 &&
-      !inSomeSpace.has(r.roomId),
+    (r) => !r.isSpace && !r.isDirect && !inSomeSpace.has(r.roomId),
   );
 }
 

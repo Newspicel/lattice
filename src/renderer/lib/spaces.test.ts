@@ -81,6 +81,14 @@ describe('getOrphanRooms', () => {
       getOrphanRooms([org, inside, orphan, dm, spaceRoom]).map((r) => r.roomId),
     ).toEqual(['!orphan']);
   });
+
+  it('treats a room with a stale m.space.parent as orphan when no visible space claims it', () => {
+    // Room declares a parent space via m.space.parent, but that space either
+    // isn't visible to the user or no longer lists it as m.space.child. The
+    // room must still surface somewhere — otherwise it becomes invisible.
+    const stranded = room('!stranded', { parentSpaceIds: ['!gone'] });
+    expect(getOrphanRooms([stranded]).map((r) => r.roomId)).toEqual(['!stranded']);
+  });
 });
 
 describe('getTopLevelSpaces', () => {
