@@ -10,6 +10,11 @@ const { autoUpdater } = electronUpdater;
 const UPDATE_CONFIG_FILE = 'update-config.json';
 const INITIAL_CHECK_DELAY_MS = 8000;
 
+// Set by package managers (e.g. the Nix flake) that ship Lattice as a
+// system-managed binary. When set, we skip electron-updater entirely so
+// the app doesn't try to overwrite a read-only store path.
+const updatesManagedExternally = process.env.LATTICE_DISABLE_AUTO_UPDATE === '1';
+
 interface PersistedConfig {
   channel: UpdateChannel;
 }
@@ -67,6 +72,21 @@ export async function initUpdater(getWindow: () => BrowserWindow | null): Promis
   const config = await readConfig();
   currentChannel = config.channel;
   lastState = { status: 'idle', channel: currentChannel, version: app.getVersion() };
+
+  if (updatesManagedExternally) {
+    lastState = {
+      status: 'unsupported',
+      channel: currentChannel,
+      version: app.getVersion(),
+      error: 'Updates are managed by the system package manager.',
+    };
+    ipcMain.handle(IpcChannels.Updates.GetState, () => lastState);
+    ipcMain.handle(IpcChannels.Updates.GetChannel, () => currentChannel);
+    ipcMain.handle(IpcChannels.Updates.SetChannel, async () => currentChannel);
+    ipcMain.handle(IpcChannels.Updates.Check, async () => lastState);
+    ipcMain.handle(IpcChannels.Updates.QuitAndInstall, () => {});
+    return;
+  }
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;

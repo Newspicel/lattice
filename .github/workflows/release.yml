@@ -116,3 +116,84 @@ jobs:
             dist/latest*.yml
           if-no-files-found: ignore
           retention-days: 14
+
+  update-flake:
+    name: Bump flake pin
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skipping non-stable tag $TAG"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux AppImage artifact
+        if: steps.ver.outputs.skip != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: lattice-linux
+          path: artifacts
+
+      - name: Compute SRI hash
+        if: steps.ver.outputs.skip != 'true'
+        id: hash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          appimage="artifacts/Lattice-${VERSION}.AppImage"
+          if [[ ! -f "$appimage" ]]; then
+            echo "::error::AppImage not found at $appimage" >&2
+            ls -la artifacts || true
+            exit 1
+          fi
+          hex=$(sha256sum "$appimage" | awk '{print $1}')
+          b64=$(printf '%s' "$hex" | xxd -r -p | base64)
+          echo "hash=sha256-${b64}" >> "$GITHUB_OUTPUT"
+
+      - name: Patch flake.nix
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          HASH: ${{ steps.hash.outputs.hash }}
+        run: |
+          set -euo pipefail
+          sed -i -E "s|^([[:space:]]*version[[:space:]]*=[[:space:]]*\")[^\"]+(\";)|\1${VERSION}\2|" flake.nix
+          sed -i -E "s|^([[:space:]]*hash[[:space:]]*=[[:space:]]*\")sha256-[^\"]+(\";)|\1${HASH}\2|" flake.nix
+          echo "--- flake.nix (updated) ---"
+          grep -E '^\s*(version|hash)\s*=' flake.nix
+
+      - name: Commit and push
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet flake.nix; then
+            echo "flake.nix already pinned to v${VERSION}; nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.nix
+          git commit -m "chore(flake): bump to v${VERSION}"
+          git push origin HEAD:main
