@@ -40,7 +40,7 @@
     "emojibase-data": "^17.0.0",
     "framer-motion": "^12.38.0",
     "livekit-client": "latest",
-    "lucide-react": "^1.11.0",
+    "lucide-react": "^1.14.0",
     "marked": "^18.0.2",
     "matrix-js-sdk": "latest",
     "react": "^19.2.5",
