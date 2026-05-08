@@ -19,6 +19,7 @@ import { AuthedImage } from '@/lib/mxc';
 import { Button } from '@/ui/primitives/button';
 import { Input } from '@/ui/primitives/input';
 import { DialogShell } from './DialogShell';
+import { RoomEmojisPanel } from './RoomEmojisPanel';
 
 export function RoomSettingsDialog() {
   const roomId = useUiStore((s) => s.roomSettingsForId);
@@ -65,6 +66,7 @@ function RoomSettingsBody({
     <div className="flex flex-col gap-5">
       <ProfileSection room={room} client={client} />
       <InviteSection room={room} client={client} />
+      <RoomEmojisPanel client={client} roomId={room.roomId} />
       <EncryptionSection room={room} client={client} />
       <DangerSection room={room} client={client} onLeft={onClose} />
     </div>

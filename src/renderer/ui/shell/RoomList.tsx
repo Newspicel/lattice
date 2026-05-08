@@ -21,7 +21,8 @@ import {
   leaveRoom,
   markSpaceAsRead,
 } from '@/matrix/roomOps';
-import { getOrphanRooms, getSpaceTree } from '@/lib/spaces';
+import { getOrphanRooms, getSpaceTree, LOBBY_ROOM_ID } from '@/lib/spaces';
+import { getSpacePermissions } from '@/lib/powerLevels';
 import { RoomRow, SpaceTree } from '@/ui/shell/SpaceTree';
 import { HomeserverStatus } from '@/ui/shell/HomeserverStatus';
 import { useUiStore, viewKeyFor } from '@/state/ui';
@@ -76,9 +77,20 @@ export function RoomList() {
   useEffect(() => {
     if (!activeAccountId || !viewKey) return;
     if (activeRoomId) return;
-    const candidateIds = activeSpace
-      ? flattenSpaceRoomIds(allRooms, activeSpace)
-      : [...homeDms, ...homeOrphans, ...dmRequests].map((r) => r.roomId);
+    if (activeSpace) {
+      // Inside a space: prefer the last-visited room (including the lobby
+      // sentinel) if it still exists; otherwise default to the lobby so new
+      // visitors land on the overview rather than a random room.
+      const candidateIds = flattenSpaceRoomIds(allRooms, activeSpace);
+      const remembered = lastRoomByView[viewKey];
+      const pick =
+        remembered && (remembered === LOBBY_ROOM_ID || candidateIds.includes(remembered))
+          ? remembered
+          : LOBBY_ROOM_ID;
+      setActiveRoom(pick);
+      return;
+    }
+    const candidateIds = [...homeDms, ...homeOrphans, ...dmRequests].map((r) => r.roomId);
     if (candidateIds.length === 0) return;
     const remembered = lastRoomByView[viewKey];
     const pick =
@@ -177,6 +189,13 @@ function SpaceMenu({ space }: { space: RoomSummary }) {
   const client: MatrixClient | null =
     (activeAccountId ? accountManager.getClient(activeAccountId) : null) ?? null;
 
+  // Re-evaluate on each render so power-level changes (which trigger a rooms
+  // refresh) take effect without extra subscriptions. Falls back to "no perms"
+  // when the client isn't ready yet.
+  const perms = client
+    ? getSpacePermissions(client, space.roomId)
+    : { canInvite: false, canManageChildren: false, canEditProfile: false };
+
   async function onMarkSpaceRead() {
     if (!client) return;
     try {
@@ -236,30 +255,38 @@ function SpaceMenu({ space }: { space: RoomSummary }) {
           <span className="whitespace-nowrap">Mark as read</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => setInviteForRoomId(space.roomId)}>
-          <UserPlus />
-          <span className="whitespace-nowrap">Invite</span>
-        </DropdownMenuItem>
+        {perms.canInvite && (
+          <DropdownMenuItem onClick={() => setInviteForRoomId(space.roomId)}>
+            <UserPlus />
+            <span className="whitespace-nowrap">Invite</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={onCopyLink}>
           <Link2 />
           <span className="whitespace-nowrap">Copy link</span>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => setCreateRoomOpen({ parentSpaceId: space.roomId })}
-        >
-          <Hash />
-          <span className="whitespace-nowrap">Add room</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => setCreateSpaceOpen({ parentSpaceId: space.roomId })}
-        >
-          <FolderPlus />
-          <span className="whitespace-nowrap">Add category</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setSpaceSettingsForId(space.roomId)}>
-          <SettingsIcon />
-          <span className="whitespace-nowrap">Space settings</span>
-        </DropdownMenuItem>
+        {perms.canManageChildren && (
+          <>
+            <DropdownMenuItem
+              onClick={() => setCreateRoomOpen({ parentSpaceId: space.roomId })}
+            >
+              <Hash />
+              <span className="whitespace-nowrap">Add room</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setCreateSpaceOpen({ parentSpaceId: space.roomId })}
+            >
+              <FolderPlus />
+              <span className="whitespace-nowrap">Add category</span>
+            </DropdownMenuItem>
+          </>
+        )}
+        {perms.canEditProfile && (
+          <DropdownMenuItem onClick={() => setSpaceSettingsForId(space.roomId)}>
+            <SettingsIcon />
+            <span className="whitespace-nowrap">Space settings</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={onLeave}>
           <LogOut />

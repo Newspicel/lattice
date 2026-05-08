@@ -1,4 +1,4 @@
-import { Hash, Lock, Phone, Settings as SettingsIcon, Users, Volume2 } from 'lucide-react';
+import { Hash, Home, Lock, Phone, Settings as SettingsIcon, Users, Volume2 } from 'lucide-react';
 import { useAccountsStore } from '@/state/accounts';
 import { useRoomsStore } from '@/state/rooms';
 import { Timeline } from '@/ui/timeline/Timeline';
@@ -8,18 +8,30 @@ import { useUiStore } from '@/state/ui';
 import { startCall } from '@/matrix/rtc/RtcSession';
 import { accountManager } from '@/matrix/AccountManager';
 import { RequestBanner } from '@/ui/shell/RequestBanner';
+import { SpaceLobby } from '@/ui/shell/SpaceLobby';
+import { isLobbyRoomId } from '@/lib/spaces';
 
 export function MainPane() {
   const activeAccountId = useAccountsStore((s) => s.activeAccountId);
   const activeRoomId = useAccountsStore((s) => s.activeRoomId);
+  const activeSpaceId = useAccountsStore((s) => s.activeSpaceId);
   const toggleMembers = useUiStore((s) => s.toggleMemberList);
   const setRoomSettingsForId = useUiStore((s) => s.setRoomSettingsForId);
 
+  const lobbyMode = isLobbyRoomId(activeRoomId) && !!activeSpaceId;
+
   const room = useRoomsStore((s) => {
     if (!activeAccountId || !activeRoomId) return null;
+    if (isLobbyRoomId(activeRoomId)) return null;
     const rooms = s.byAccount[activeAccountId];
     if (!rooms) return null;
     return rooms.find((r) => r.roomId === activeRoomId) ?? null;
+  });
+
+  const activeSpace = useRoomsStore((s) => {
+    if (!activeAccountId || !activeSpaceId) return null;
+    const rooms = s.byAccount[activeAccountId];
+    return rooms?.find((r) => r.roomId === activeSpaceId) ?? null;
   });
 
   const client = activeAccountId ? accountManager.getClient(activeAccountId) ?? null : null;
@@ -29,18 +41,29 @@ export function MainPane() {
     await startCall(client, activeAccountId, activeRoomId);
   }
 
+  const headerTitle = lobbyMode
+    ? activeSpace?.name ?? 'Space'
+    : room?.name ?? 'Select a room';
+
   return (
     <section className="flex h-full flex-1 flex-col bg-[var(--color-panel-2)]">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[var(--color-divider)] px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <HeaderRoomIcon
-            isVoice={!!room?.isVoice}
-            isEncrypted={!!room?.isEncrypted}
-          />
+          {lobbyMode ? (
+            <Home
+              className="h-4 w-4 text-[var(--color-text-muted)]"
+              strokeWidth={1.75}
+            />
+          ) : (
+            <HeaderRoomIcon
+              isVoice={!!room?.isVoice}
+              isEncrypted={!!room?.isEncrypted}
+            />
+          )}
           <h1 className="truncate text-sm font-semibold tracking-tight text-[var(--color-text-strong)]">
-            {room?.name ?? 'Select a room'}
+            {headerTitle}
           </h1>
-          {room?.topic && (
+          {!lobbyMode && room?.topic && (
             <>
               <span aria-hidden className="h-3 w-px bg-[var(--color-divider)]" />
               <span className="truncate text-xs text-[var(--color-text-muted)]">
@@ -50,7 +73,7 @@ export function MainPane() {
           )}
         </div>
         <div className="flex items-center">
-          {room && !room.isVoice && !room.isInvite && (
+          {!lobbyMode && room && !room.isVoice && !room.isInvite && (
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
@@ -60,7 +83,7 @@ export function MainPane() {
               <Phone className="h-4 w-4" strokeWidth={1.75} />
             </button>
           )}
-          {room && !room.isInvite && (
+          {!lobbyMode && room && !room.isInvite && (
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
@@ -70,7 +93,7 @@ export function MainPane() {
               <SettingsIcon className="h-4 w-4" strokeWidth={1.75} />
             </button>
           )}
-          {!room?.isInvite && (
+          {!lobbyMode && !room?.isInvite && (
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover-overlay)] hover:text-[var(--color-text-strong)]"
@@ -83,7 +106,9 @@ export function MainPane() {
         </div>
       </header>
 
-      {room?.isInvite && client ? (
+      {lobbyMode && activeSpaceId ? (
+        <SpaceLobby spaceId={activeSpaceId} />
+      ) : room?.isInvite && client ? (
         <RequestBanner room={room} client={client} />
       ) : room?.isVoice ? (
         <VoiceChannelView room={room} />

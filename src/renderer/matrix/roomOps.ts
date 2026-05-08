@@ -221,6 +221,10 @@ export async function leaveRoom(
 /**
  * Send a read receipt for the latest event in `roomId`. Silently no-ops if
  * the room is empty or unknown to the SDK.
+ *
+ * Skips pending local-echo events: their synthetic `~!…` event IDs aren't
+ * known to the homeserver, which rejects the receipt with `400 A valid room
+ * ID and event ID must be specified`.
  */
 export async function markRoomAsRead(
   client: MatrixClient,
@@ -229,7 +233,14 @@ export async function markRoomAsRead(
   const room = client.getRoom(roomId);
   if (!room) return;
   const events = room.getLiveTimeline().getEvents();
-  const last = events[events.length - 1];
+  let last: (typeof events)[number] | null = null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    const id = ev.getId();
+    if (!id || id.startsWith('~') || ev.status) continue;
+    last = ev;
+    break;
+  }
   if (!last) return;
   await client.sendReadReceipt(last);
 }

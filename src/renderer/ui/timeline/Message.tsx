@@ -2,12 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { CornerDownRight, Lock, SmilePlus, Reply, Pencil, Trash2, MessageSquare } from 'lucide-react';
 import { useTimelineStore, type TimelineEntry } from '@/state/timeline';
 import { sanitizeEventHtml, renderPlainBody } from '@/lib/markdown';
+import { HtmlBody } from '@/lib/htmlToReact';
 import { useAccountsStore } from '@/state/accounts';
 import { useUiStore } from '@/state/ui';
 import { accountManager } from '@/matrix/AccountManager';
 import { AuthedImage, useAuthedMedia, useAuthedEncryptedMedia, type EncryptedFile } from '@/lib/mxc';
 import { redactEvent, sendReaction, sendEdit } from '@/matrix/messageOps';
+import { resolveCustomEmoji, useAvailableEmoticons } from '@/state/customEmojis';
+import { EmoteImage } from './EmoteImage';
+import { ReactionPill } from './ReactionPill';
+import { EmojiPicker } from '@/ui/primitives/emoji-picker';
 import { PollView, isPollStartType } from './Poll';
+import { StickerMessage } from './StickerMessage';
 import { Button } from '@/ui/primitives/button';
 import { InitialBadge } from '@/ui/primitives/InitialBadge';
 import { Textarea } from '@/ui/primitives/textarea';
@@ -32,20 +38,22 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
   const setThreadRoot = useUiStore((s) => s.setThreadRoot);
   const setReplyTo = useUiStore((s) => s.setReplyTo);
   const quickReactions = useUiStore((s) => s.quickReactions);
+  const availableEmoticons = useAvailableEmoticons(activeAccountId, activeRoomId);
   const openLightbox = useUiStore((s) => s.openLightbox);
   const openProfileCard = useUiStore((s) => s.openProfileCard);
   const [editing, setEditing] = useState(false);
   const [reactionMenuOpen, setReactionMenuOpen] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [toolbarPinned, setToolbarPinned] = useState(false);
 
   useEffect(() => {
-    if (reactionMenuOpen) {
+    if (reactionMenuOpen || emojiPickerOpen) {
       setToolbarPinned(true);
       return;
     }
     const t = setTimeout(() => setToolbarPinned(false), 200);
     return () => clearTimeout(t);
-  }, [reactionMenuOpen]);
+  }, [reactionMenuOpen, emojiPickerOpen]);
   const [draft, setDraft] = useState(
     typeof (entry.content as { body?: string }).body === 'string'
       ? ((entry.content as { body?: string }).body ?? '')
@@ -93,10 +101,16 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
 
   const hasMediaSource =
     typeof content.url === 'string' || typeof content.file?.url === 'string';
+  const isSticker =
+    !entry.isRedacted &&
+    !entry.isDecryptionFailure &&
+    entry.type === 'm.sticker' &&
+    hasMediaSource;
   const isImage =
     !entry.isRedacted &&
     !entry.isDecryptionFailure &&
-    (content.msgtype === 'm.image' || entry.type === 'm.sticker') &&
+    !isSticker &&
+    content.msgtype === 'm.image' &&
     hasMediaSource;
   const isFile =
     !entry.isRedacted &&
@@ -133,7 +147,9 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
   }
   async function onSaveEdit() {
     if (!client || !activeRoomId) return;
-    await sendEdit(client, activeRoomId, entry.eventId, draft);
+    await sendEdit(client, activeRoomId, entry.eventId, draft, (code) =>
+      resolveCustomEmoji(activeAccountId, activeRoomId, code),
+    );
     setEditing(false);
   }
 
@@ -164,29 +180,73 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
           </Tooltip>
           <DropdownMenuContent align="end" className="w-auto min-w-0">
             <div className="flex flex-nowrap items-center gap-1 p-1">
-              {quickReactions.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => onReact(r)}
-                  className="px-2 py-1 text-base transition-colors hover:bg-[var(--color-hover-overlay)]"
-                >
-                  {r}
-                </button>
-              ))}
+              {quickReactions.map((r, i) =>
+                r.kind === 'unicode' ? (
+                  <button
+                    key={`u-${i}-${r.value}`}
+                    type="button"
+                    onClick={() => {
+                      void onReact(r.value);
+                      setReactionMenuOpen(false);
+                    }}
+                    className="px-2 py-1 text-base transition-colors hover:bg-[var(--color-hover-overlay)]"
+                  >
+                    {r.value}
+                  </button>
+                ) : (
+                  <button
+                    key={`c-${i}-${r.mxc}`}
+                    type="button"
+                    onClick={() => {
+                      void onReact(r.mxc);
+                      setReactionMenuOpen(false);
+                    }}
+                    className="flex h-7 w-7 items-center justify-center transition-colors hover:bg-[var(--color-hover-overlay)]"
+                    title={`:${r.shortcode}:`}
+                  >
+                    <EmoteImage client={client} mxc={r.mxc} alt={`:${r.shortcode}:`} size={20} />
+                  </button>
+                ),
+              )}
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => {
-                const k = prompt('Emoji');
-                if (k) void onReact(k);
+                setReactionMenuOpen(false);
+                // Defer to next tick so the dropdown finishes closing before
+                // the popover lays itself out — otherwise the focus trap can
+                // fight with the picker.
+                requestAnimationFrame(() => setEmojiPickerOpen(true));
               }}
             >
               <SmilePlus className="h-4 w-4" />
-              Custom reaction…
+              More emoji…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <EmojiPicker
+          open={emojiPickerOpen}
+          onOpenChange={setEmojiPickerOpen}
+          side="bottom"
+          align="end"
+          customPacks={availableEmoticons}
+          client={client}
+          onSelect={(g) => {
+            void onReact(g);
+            setEmojiPickerOpen(false);
+          }}
+          onSelectCustom={(emoji) => {
+            void onReact(emoji.mxc);
+            setEmojiPickerOpen(false);
+          }}
+          trigger={
+            <button
+              type="button"
+              aria-label="Pick reaction emoji"
+              className="pointer-events-none absolute right-0 top-0 h-0 w-0 opacity-0"
+            />
+          }
+        />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -335,6 +395,19 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
               </Button>
             </div>
           </div>
+        ) : isSticker && client ? (
+          <StickerMessage
+            content={content as Parameters<typeof StickerMessage>[0]['content']}
+            client={client}
+            onClick={() =>
+              openLightbox({
+                mxc: content.file ? null : content.url,
+                file: content.file ?? null,
+                mimetype: content.info?.mimetype,
+                alt: content.body ?? '',
+              })
+            }
+          />
         ) : isImage && client ? (
           <button
             type="button"
@@ -374,10 +447,9 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
             label={content.body ?? 'file'}
           />
         ) : (
-          <div
-            className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-[var(--color-text)] [&_a]:text-[var(--color-text-strong)] [&_a]:underline [&_a]:underline-offset-2 [&_code]:bg-[var(--color-code-bg)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em] [&_pre]:bg-[var(--color-code-bg)] [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs"
-            dangerouslySetInnerHTML={{ __html: renderedHtml }}
-          />
+          <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-[var(--color-text)] [&_a]:text-[var(--color-text-strong)] [&_a]:underline [&_a]:underline-offset-2 [&_code]:bg-[var(--color-code-bg)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em] [&_pre]:bg-[var(--color-code-bg)] [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs">
+            <HtmlBody html={renderedHtml} client={client} />
+          </div>
         )}
         {entry.editedFromId && (
           <span className="ml-1 text-[10px] text-[var(--color-text-faint)]" title="edited">
@@ -387,17 +459,19 @@ export function MessageItem({ entry, showHeader }: MessageItemProps) {
         {Object.keys(entry.reactions).length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {Object.entries(entry.reactions).map(([key, info]) => (
-              <span
+              <ReactionPill
                 key={key}
-                className={`flex items-center gap-1 border px-1.5 py-0.5 text-xs tabular-nums transition-colors ${
-                  info.byMe
-                    ? 'border-[var(--color-text-strong)] bg-[var(--color-surface)] text-[var(--color-text-strong)]'
-                    : 'border-[var(--color-divider)] bg-[var(--color-panel-2)] text-[var(--color-text-muted)]'
-                }`}
-              >
-                <span>{key}</span>
-                <span className="font-mono text-[10px]">{info.count}</span>
-              </span>
+                client={client}
+                reactionKey={key}
+                count={info.count}
+                byMe={info.byMe}
+                resolveTooltip={(k) => {
+                  if (!k.startsWith('mxc://')) return k;
+                  const match = availableEmoticons.find((e) => e.mxc === k);
+                  return match ? `:${match.shortcode}:` : 'custom';
+                }}
+                onClick={() => onReact(key)}
+              />
             ))}
           </div>
         )}

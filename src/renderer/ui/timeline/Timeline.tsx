@@ -48,9 +48,21 @@ export function Timeline() {
     const room = client?.getRoom(activeRoomId);
     if (!client || !room) return;
     const events = room.getLiveTimeline().getEvents();
-    const lastEvent = events[events.length - 1];
+    // Walk backwards skipping pending local-echo events (synthetic `~!…`
+    // event IDs). The homeserver rejects receipts pointing at events it has
+    // never seen — `400 A valid room ID and event ID must be specified`.
+    let lastEvent: (typeof events)[number] | null = null;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i];
+      const id = ev.getId();
+      if (!id || id.startsWith('~') || ev.status) continue;
+      lastEvent = ev;
+      break;
+    }
     if (!lastEvent) return;
-    void client.sendReadReceipt(lastEvent);
+    void client.sendReadReceipt(lastEvent).catch((err) => {
+      console.warn('[receipt] sendReadReceipt failed', err);
+    });
   }, [activeAccountId, activeRoomId, entries]);
 
   // Reset scroll anchoring on room switch so the new room always lands at the

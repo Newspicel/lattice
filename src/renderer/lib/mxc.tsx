@@ -1,5 +1,6 @@
 import { useEffect, useState, type ImgHTMLAttributes } from 'react';
 import { ClientEvent, SyncState, type MatrixClient } from 'matrix-js-sdk';
+import { acquire, type MediaCacheEntry } from './mediaCache';
 
 /**
  * End-to-end encrypted attachment descriptor, as stored in the `file` field of
@@ -32,10 +33,12 @@ export function mxcToHttp(
   );
 }
 
+const EMPTY_ENTRY: MediaCacheEntry = { url: null, loading: false, error: null };
+
 /**
- * Fetch an authenticated media URL with the client's access token and return
- * a blob URL suitable for `<img src>`. The blob URL is revoked on unmount or
- * when inputs change.
+ * Fetch an authenticated media URL with the client's access token and return a
+ * blob URL suitable for `<img src>`. Backed by a process-wide cache so the same
+ * mxc URL is fetched once and shared across consumers.
  */
 export function useAuthedMedia(
   client: MatrixClient | null | undefined,
@@ -43,143 +46,61 @@ export function useAuthedMedia(
   width = 96,
   height = 96,
 ): string | null {
-  // Track which mxc the loaded blob URL belongs to so a prop change
-  // immediately hides the previous source instead of showing it until the
-  // new fetch resolves.
-  const [loaded, setLoaded] = useState<{ mxc: string; url: string } | null>(null);
-  // Bumped by the resync waiter so the effect re-runs after the homeserver
-  // recovers; without this a fetch that failed during an outage would stay
-  // null until something else changed the deps (or the app restarted).
+  const [entry, setEntry] = useState<MediaCacheEntry>(EMPTY_ENTRY);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!client || !mxc) {
-      setLoaded(null);
+      setEntry(EMPTY_ENTRY);
       return;
     }
-    const httpUrl = client.mxcUrlToHttp(mxc, width, height, 'scale', false, true, true);
-    if (!httpUrl) {
-      setLoaded(null);
-      return;
-    }
-
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    const token = client.getAccessToken();
-    const cleanup = makeResyncRetry(client, () => {
-      if (!cancelled) setRetry((n) => n + 1);
+    const cleanup = makeResyncRetry(client, () => setRetry((n) => n + 1));
+    const release = acquire({ client, mxc, width, height }, (next) => {
+      setEntry(next);
+      if (next.error) cleanup.arm();
     });
-
-    fetch(httpUrl, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`media ${r.status}`);
-        return r.blob();
-      })
-      .then((blob) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setLoaded({ mxc, url: objectUrl });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setLoaded(null);
-        cleanup.arm();
-      });
-
     return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      release();
       cleanup.dispose();
     };
   }, [client, mxc, width, height, retry]);
 
-  return loaded && loaded.mxc === mxc ? loaded.url : null;
+  return entry.url;
 }
 
 /**
  * Fetch and decrypt an encrypted attachment, returning a blob URL. Decryption
  * uses AES-CTR with the JWK key embedded in the event and verifies the SHA-256
- * hash of the ciphertext against the sender's claim.
+ * hash of the ciphertext against the sender's claim. Shares the media cache.
  */
 export function useAuthedEncryptedMedia(
   client: MatrixClient | null | undefined,
   file: EncryptedFile | null | undefined,
   mimetype: string | undefined,
 ): string | null {
-  // Same prop-vs-loaded check as useAuthedMedia so a file change doesn't
-  // surface the previously-loaded blob.
-  const [loaded, setLoaded] = useState<{ file: EncryptedFile; url: string } | null>(null);
+  const [entry, setEntry] = useState<MediaCacheEntry>(EMPTY_ENTRY);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!client || !file) {
-      setLoaded(null);
+      setEntry(EMPTY_ENTRY);
       return;
     }
-    // Encrypted media must be fetched at full size — the server can't resize
-    // an opaque ciphertext. Pass 0/0 to get the download URL.
-    const httpUrl = client.mxcUrlToHttp(file.url, undefined, undefined, undefined, false, true, true);
-    if (!httpUrl) {
-      setLoaded(null);
-      return;
-    }
-
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    const token = client.getAccessToken();
-    const cleanup = makeResyncRetry(client, () => {
-      if (!cancelled) setRetry((n) => n + 1);
-    });
-
-    (async () => {
-      const r = await fetch(httpUrl, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!r.ok) throw new Error(`media ${r.status}`);
-      const ciphertext = await r.arrayBuffer();
-
-      const expectedHash = file.hashes.sha256;
-      if (expectedHash) {
-        const digest = await globalThis.crypto.subtle.digest('SHA-256', ciphertext);
-        if (base64Unpadded(new Uint8Array(digest)) !== stripBase64Padding(expectedHash)) {
-          throw new Error('attachment hash mismatch');
-        }
-      }
-
-      const aesKey = await globalThis.crypto.subtle.importKey(
-        'jwk',
-        file.key,
-        { name: 'AES-CTR' },
-        false,
-        ['decrypt'],
-      );
-      const iv = base64ToBytes(file.iv);
-      const plaintext = await globalThis.crypto.subtle.decrypt(
-        { name: 'AES-CTR', counter: iv, length: 64 },
-        aesKey,
-        ciphertext,
-      );
-
-      if (cancelled) return;
-      const blob = new Blob([plaintext], mimetype ? { type: mimetype } : {});
-      objectUrl = URL.createObjectURL(blob);
-      setLoaded({ file, url: objectUrl });
-    })().catch(() => {
-      if (cancelled) return;
-      setLoaded(null);
-      cleanup.arm();
-    });
-
+    const cleanup = makeResyncRetry(client, () => setRetry((n) => n + 1));
+    const release = acquire(
+      { client, mxc: file.url, encryptedFile: file, mimetype },
+      (next) => {
+        setEntry(next);
+        if (next.error) cleanup.arm();
+      },
+    );
     return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      release();
       cleanup.dispose();
     };
   }, [client, file, mimetype, retry]);
 
-  return loaded && loaded.file === file ? loaded.url : null;
+  return entry.url;
 }
 
 type AuthedImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
@@ -219,10 +140,6 @@ export function AuthedImage({
  * retrying. Without this, a single network blip leaves the image stuck on
  * `null` until the deps change (or the app restarts), because the fetch
  * effect has nothing else to re-run on.
- *
- * `arm()` registers the listener — call it from the `.catch` so we only
- * listen when there's actually something to retry. `dispose()` removes the
- * listener and is safe to call whether or not it was armed.
  */
 function makeResyncRetry(
   client: MatrixClient,
@@ -248,22 +165,4 @@ function makeResyncRetry(
       attached = false;
     },
   };
-}
-
-function base64ToBytes(s: string): Uint8Array<ArrayBuffer> {
-  const padded = s + '==='.slice((s.length + 3) % 4);
-  const bin = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
-  const out = new Uint8Array(new ArrayBuffer(bin.length));
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-function base64Unpadded(bytes: Uint8Array): string {
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/=+$/, '');
-}
-
-function stripBase64Padding(s: string): string {
-  return s.replace(/=+$/, '');
 }

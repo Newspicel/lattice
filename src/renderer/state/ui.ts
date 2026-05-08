@@ -8,6 +8,15 @@ export interface LightboxImage {
   alt?: string;
 }
 
+/**
+ * A single quick-reaction slot. Unicode slots store the literal glyph; custom
+ * slots store the mxc URL (matching how MSC2545 reactions are sent: the
+ * reaction `key` is the mxc URL itself).
+ */
+export type QuickReaction =
+  | { kind: 'unicode'; value: string }
+  | { kind: 'custom'; mxc: string; shortcode: string };
+
 export interface ProfileCardAnchor {
   x: number;
   y: number;
@@ -20,7 +29,13 @@ export interface ProfileCardTarget {
   anchor: ProfileCardAnchor;
 }
 
-const DEFAULT_REACTIONS = ['👍', '❤️', '😂', '🎉', '🙏'];
+const DEFAULT_REACTIONS: QuickReaction[] = [
+  { kind: 'unicode', value: '👍' },
+  { kind: 'unicode', value: '❤️' },
+  { kind: 'unicode', value: '😂' },
+  { kind: 'unicode', value: '🎉' },
+  { kind: 'unicode', value: '🙏' },
+];
 
 export type ThemePreference = 'system' | 'dark' | 'light';
 
@@ -80,8 +95,8 @@ interface UiState {
   closeProfileCard: () => void;
 
   // Persisted: user's preferred quick-reaction emoji list.
-  quickReactions: string[];
-  setQuickReactions: (list: string[]) => void;
+  quickReactions: QuickReaction[];
+  setQuickReactions: (list: QuickReaction[]) => void;
 
   // Persisted: last-selected room per "view". The key is
   //   `${accountId}::space::${spaceRoomId}` or `${accountId}::home`
@@ -160,12 +175,25 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'ui',
+      version: 2,
       partialize: (state) => ({
         quickReactions: state.quickReactions,
         lastRoomByView: state.lastRoomByView,
         memberListOpen: state.memberListOpen,
         theme: state.theme,
       }),
+      migrate: (persisted, version) => {
+        // v1 stored quickReactions as plain string[]; widen each entry to a
+        // QuickReaction object so the new picker code doesn't choke on launch.
+        const next = (persisted ?? {}) as Record<string, unknown>;
+        if (version < 2 && Array.isArray(next.quickReactions)) {
+          next.quickReactions = (next.quickReactions as unknown[])
+            .filter((v): v is string => typeof v === 'string')
+            .map((value) => ({ kind: 'unicode' as const, value }));
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return next as any;
+      },
     },
   ),
 );

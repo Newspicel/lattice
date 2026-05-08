@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { installSdkLogging } from '../lib/sdkLogging';
 import { App } from './App';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { bootstrapTheme } from '../lib/theme';
@@ -7,6 +8,7 @@ import '@fontsource-variable/inter/index.css';
 import '@fontsource-variable/jetbrains-mono/index.css';
 import '../styles/global.css';
 
+installSdkLogging();
 bootstrapTheme();
 
 const root = document.getElementById('root');

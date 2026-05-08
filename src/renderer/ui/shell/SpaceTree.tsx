@@ -1,10 +1,11 @@
-import { ChevronDown, ChevronRight, FolderPlus, Hash, Lock, Plus, Volume2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderPlus, Hash, Home, Lock, Plus, Volume2 } from 'lucide-react';
 import type { MatrixClient } from 'matrix-js-sdk';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { AuthedImage } from '@/lib/mxc';
 import type { RoomSummary } from '@/state/rooms';
-import { getSpaceTree } from '@/lib/spaces';
+import { getSpaceTree, LOBBY_ROOM_ID } from '@/lib/spaces';
+import { getSpacePermissions } from '@/lib/powerLevels';
 import { useUiStore } from '@/state/ui';
 import {
   DropdownMenu,
@@ -32,11 +33,15 @@ export function SpaceTree({
   client: MatrixClient | null;
 }) {
   const tree = useMemo(() => getSpaceTree(rooms, space.roomId), [rooms, space.roomId]);
+  const lobbyActive = activeRoomId === LOBBY_ROOM_ID;
 
   return (
     <div className="space-y-2">
+      <ul className="space-y-px pt-1">
+        <LobbyRow active={lobbyActive} onClick={() => onSelect(LOBBY_ROOM_ID)} />
+      </ul>
       {tree.directRooms.length > 0 && (
-        <ul className="space-y-px pt-1">
+        <ul className="space-y-px">
           {tree.directRooms.map((r) => (
             <RoomRow
               key={r.roomId}
@@ -58,12 +63,35 @@ export function SpaceTree({
           client={client}
         />
       ))}
-      {tree.directRooms.length === 0 && tree.subspaces.length === 0 && (
-        <p className="px-2 pt-4 text-xs italic text-[var(--color-text-faint)]">
-          No rooms in this space yet.
-        </p>
-      )}
     </div>
+  );
+}
+
+function LobbyRow({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'group relative flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors',
+          active
+            ? 'bg-[var(--color-surface)] text-[var(--color-text-strong)]'
+            : 'text-[var(--color-text-muted)] hover:bg-[var(--color-hover-overlay-subtle)] hover:text-[var(--color-text-strong)]',
+        )}
+      >
+        {active && (
+          <span
+            aria-hidden
+            className="absolute inset-y-1 left-0 w-[2px] bg-[var(--color-text-strong)]"
+          />
+        )}
+        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+          <Home className="h-4 w-4 text-[var(--color-text-faint)]" strokeWidth={1.75} />
+        </span>
+        <span className="flex-1 truncate">Home</span>
+      </button>
+    </li>
   );
 }
 
@@ -83,6 +111,9 @@ function SubspaceCategory({
   const [open, setOpen] = useState(true);
   const setCreateRoomOpen = useUiStore((s) => s.setCreateRoomOpen);
   const setCreateSpaceOpen = useUiStore((s) => s.setCreateSpaceOpen);
+  const canAddChildren = client
+    ? getSpacePermissions(client, space.roomId).canManageChildren
+    : false;
   // When the category is collapsed but the active room lives inside it, keep
   // that one row visible so the user never loses sight of where they are.
   // As soon as they navigate elsewhere the row disappears with the rest.
@@ -104,34 +135,36 @@ function SubspaceCategory({
           )}
           <span className="truncate">{space.name}</span>
         </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--color-text-muted)] opacity-0 transition-opacity hover:text-[var(--color-text-strong)] focus-visible:opacity-100 group-hover/subspace:opacity-100 aria-expanded:opacity-100"
-                title={`Add to ${space.name}`}
-                aria-label={`Add to ${space.name}`}
-              />
-            }
-          >
-            <Plus className="h-3 w-3" strokeWidth={2} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" sideOffset={4} className="min-w-56">
-            <DropdownMenuItem
-              onClick={() => setCreateRoomOpen({ parentSpaceId: space.roomId })}
+        {canAddChildren && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--color-text-muted)] opacity-0 transition-opacity hover:text-[var(--color-text-strong)] focus-visible:opacity-100 group-hover/subspace:opacity-100 aria-expanded:opacity-100"
+                  title={`Add to ${space.name}`}
+                  aria-label={`Add to ${space.name}`}
+                />
+              }
             >
-              <Hash />
-              <span className="whitespace-nowrap">Create room</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setCreateSpaceOpen({ parentSpaceId: space.roomId })}
-            >
-              <FolderPlus />
-              <span className="whitespace-nowrap">Create category</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <Plus className="h-3 w-3" strokeWidth={2} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={4} className="min-w-56">
+              <DropdownMenuItem
+                onClick={() => setCreateRoomOpen({ parentSpaceId: space.roomId })}
+              >
+                <Hash />
+                <span className="whitespace-nowrap">Create room</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setCreateSpaceOpen({ parentSpaceId: space.roomId })}
+              >
+                <FolderPlus />
+                <span className="whitespace-nowrap">Create category</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       {(open || visibleRooms.length > 0) && (
         <ul className="space-y-px">

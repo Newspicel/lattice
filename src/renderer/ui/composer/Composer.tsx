@@ -5,9 +5,11 @@ import { accountManager } from '@/matrix/AccountManager';
 import { useAccountsStore } from '@/state/accounts';
 import { useUiStore } from '@/state/ui';
 import { useTimelineStore, type TimelineEntry } from '@/state/timeline';
-import { composeTextContent } from '@/lib/markdown';
+import { composeMessageContent } from '@/lib/markdown';
 import { uploadAndSendFile } from '@/matrix/attachments';
 import { sendReply } from '@/matrix/messageOps';
+import { resolveCustomEmoji } from '@/state/customEmojis';
+import { toast } from 'sonner';
 import { Button } from '@/ui/primitives/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/primitives/tooltip';
 import { EmojiPicker } from '@/ui/primitives/emoji-picker';
@@ -15,9 +17,13 @@ import {
   detectActiveShortcode,
   replaceShortcodeAtCursor,
   replaceShortcodes,
-  searchShortcodes,
-  type ShortcodeMatch,
+  searchCombined,
+  type AutocompleteEntry,
 } from '@/lib/emojiShortcodes';
+import { useAvailableEmoticons, useAvailableStickers } from '@/state/customEmojis';
+import { EmoteImage } from '@/ui/timeline/EmoteImage';
+import { sendSticker } from '@/matrix/messageOps';
+import { StickerPicker } from './StickerPicker';
 
 interface PendingAttachment {
   id: string;
@@ -38,15 +44,23 @@ export function Composer() {
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
   const [acState, setAcState] = useState<{
     open: boolean;
     query: string;
     start: number;
     index: number;
-    results: ShortcodeMatch[];
+    results: AutocompleteEntry[];
   }>({ open: false, query: '', start: 0, index: 0, results: [] });
   const activeAccountId = useAccountsStore((s) => s.activeAccountId);
   const activeRoomId = useAccountsStore((s) => s.activeRoomId);
+  const customEmoticons = useAvailableEmoticons(activeAccountId, activeRoomId);
+  const customStickers = useAvailableStickers(activeAccountId, activeRoomId);
+  const customCodes = useMemo(
+    () => new Set(customEmoticons.map((e) => e.shortcode)),
+    [customEmoticons],
+  );
+  const client = activeAccountId ? accountManager.getClient(activeAccountId) : null;
   const replyToId = useUiStore((s) => s.replyToId);
   const setReplyTo = useUiStore((s) => s.setReplyTo);
   const replyTarget = useTimelineStore((s) => {
@@ -101,7 +115,7 @@ export function Composer() {
       setAcState((s) => (s.open ? { ...s, open: false } : s));
       return;
     }
-    const results = searchShortcodes(detected.query, 8);
+    const results = searchCombined(detected.query, customEmoticons, 8);
     if (results.length === 0) {
       setAcState((s) => (s.open ? { ...s, open: false } : s));
       return;
@@ -115,12 +129,16 @@ export function Composer() {
     });
   }
 
-  function applyAutocomplete(match: ShortcodeMatch) {
+  function applyAutocomplete(match: AutocompleteEntry) {
     const ta = textareaRef.current;
     const cursor = ta?.selectionStart ?? value.length;
-    const next =
-      value.slice(0, acState.start) + match.emoji + value.slice(cursor);
-    const newCursor = acState.start + match.emoji.length;
+    // Unicode hits insert the glyph (matches today's behaviour); custom hits
+    // insert the colon-form so the substitution happens at send time.
+    const insertion = match.kind === 'unicode'
+      ? match.emoji
+      : `:${match.emoji.shortcode}:`;
+    const next = value.slice(0, acState.start) + insertion + value.slice(cursor);
+    const newCursor = acState.start + insertion.length;
     setValue(next);
     setAcState((s) => ({ ...s, open: false }));
     requestAnimationFrame(() => {
@@ -135,7 +153,24 @@ export function Composer() {
     if (disabled) return;
     const client = accountManager.getClient(activeAccountId!);
     if (!client) return;
-    const body = replaceShortcodes(value).trim();
+
+    // If the autocomplete popup is open with a highlighted match, treat Send
+    // as "apply the suggestion, then send" so a half-typed `:test` becomes
+    // the intended emoji instead of going out as plain text.
+    let working = value;
+    if (acState.open && acState.results.length > 0) {
+      const match = acState.results[acState.index];
+      if (match) {
+        const insertion =
+          match.kind === 'unicode' ? match.emoji : `:${match.emoji.shortcode}:`;
+        const ta = textareaRef.current;
+        const cursor = ta?.selectionStart ?? value.length;
+        working = value.slice(0, acState.start) + insertion + value.slice(cursor);
+        setAcState((s) => ({ ...s, open: false }));
+      }
+    }
+
+    const body = replaceShortcodes(working).trim();
     const pending = attachments;
     if (!body && pending.length === 0) return;
 
@@ -152,6 +187,8 @@ export function Composer() {
         if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
       }
       if (body) {
+        const resolve = (code: string) =>
+          resolveCustomEmoji(activeAccountId, activeRoomId, code);
         if (replyId) {
           const targetContent = (replyEntry?.content ?? null) as
             | { body?: string; formatted_body?: string }
@@ -168,9 +205,10 @@ export function Composer() {
                   formattedBody: targetContent?.formatted_body,
                 }
               : null,
+            resolve,
           );
         } else {
-          const content = composeTextContent(body) as unknown as RoomMessageEventContent;
+          const content = composeMessageContent(body, resolve) as unknown as RoomMessageEventContent;
           await client.sendMessage(activeRoomId!, content);
         }
       }
@@ -297,29 +335,39 @@ export function Composer() {
             <div className="border-b border-[var(--color-divider)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
               Emoji matching :{acState.query}
             </div>
-            {acState.results.map((r, i) => (
-              <button
-                key={r.code}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  applyAutocomplete(r);
-                }}
-                onMouseEnter={() =>
-                  setAcState((s) => ({ ...s, index: i }))
-                }
-                className={`flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm transition-colors ${
-                  i === acState.index
-                    ? 'bg-[var(--color-hover-overlay)] text-[var(--color-text-strong)]'
-                    : 'text-[var(--color-text)]'
-                }`}
-              >
-                <span className="text-xl leading-none">{r.emoji}</span>
-                <span className="font-mono text-xs text-[var(--color-text-muted)]">
-                  :{r.code}:
-                </span>
-              </button>
-            ))}
+            {acState.results.map((r, i) => {
+              const code = r.kind === 'unicode' ? r.code : r.emoji.shortcode;
+              const key = r.kind === 'unicode' ? `u-${code}` : `c-${r.emoji.mxc}-${code}`;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyAutocomplete(r);
+                  }}
+                  onMouseEnter={() =>
+                    setAcState((s) => ({ ...s, index: i }))
+                  }
+                  className={`flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm transition-colors ${
+                    i === acState.index
+                      ? 'bg-[var(--color-hover-overlay)] text-[var(--color-text-strong)]'
+                      : 'text-[var(--color-text)]'
+                  }`}
+                >
+                  {r.kind === 'unicode' ? (
+                    <span className="text-xl leading-none">{r.emoji}</span>
+                  ) : (
+                    <span className="flex h-6 w-6 items-center justify-center">
+                      <EmoteImage client={client} mxc={r.emoji.mxc} alt={`:${code}:`} size={22} />
+                    </span>
+                  )}
+                  <span className="font-mono text-xs text-[var(--color-text-muted)]">
+                    :{code}:
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
         {attachments.length > 0 && (
@@ -364,7 +412,7 @@ export function Composer() {
               const next = e.target.value;
               const ta = e.target;
               const cursor = ta.selectionStart ?? next.length;
-              const replaced = replaceShortcodeAtCursor(next, cursor);
+              const replaced = replaceShortcodeAtCursor(next, cursor, customCodes);
               if (replaced) {
                 setValue(replaced.text);
                 setAcState((s) => ({ ...s, open: false }));
@@ -401,8 +449,13 @@ export function Composer() {
           <EmojiPicker
             open={emojiOpen}
             onOpenChange={(o) => setEmojiOpen(o && !disabled)}
+            customPacks={customEmoticons}
+            client={client}
             onSelect={(emoji) => {
               insertEmoji(emoji);
+            }}
+            onSelectCustom={(emoji) => {
+              insertEmoji(`:${emoji.shortcode}:`);
             }}
             trigger={
               <button
@@ -419,6 +472,29 @@ export function Composer() {
               </button>
             }
           />
+          {customStickers.length > 0 && (
+            <StickerPicker
+              open={stickerOpen}
+              onOpenChange={(o) => setStickerOpen(o && !disabled)}
+              stickers={customStickers}
+              client={client}
+              onSelect={async (sticker) => {
+                if (!client || !activeRoomId) return;
+                setStickerOpen(false);
+                try {
+                  await sendSticker(client, activeRoomId, sticker);
+                } catch (err) {
+                  console.error('sticker send failed', err);
+                  toast.error(
+                    err instanceof Error
+                      ? `Sticker failed: ${err.message}`
+                      : 'Sticker send failed.',
+                  );
+                }
+              }}
+              disabled={disabled}
+            />
+          )}
           <Tooltip>
             <TooltipTrigger
               render={

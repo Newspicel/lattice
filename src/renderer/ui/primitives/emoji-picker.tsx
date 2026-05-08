@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Search } from 'lucide-react';
+import type { MatrixClient } from 'matrix-js-sdk';
 import {
   EMOJI_CATEGORIES,
   searchEmojis,
   type EmojiEntry,
 } from '@/lib/emojiData';
+import type { CustomEmoji, CustomEmojiPack } from '@/matrix/customEmojis';
+import { EmoteImage } from '@/ui/timeline/EmoteImage';
+import { AuthedImage } from '@/lib/mxc';
 import { cn } from '@/lib/utils';
 
 interface EmojiPickerProps {
@@ -15,6 +19,56 @@ interface EmojiPickerProps {
   trigger: React.ReactElement;
   align?: 'start' | 'center' | 'end';
   side?: 'top' | 'bottom' | 'left' | 'right';
+  /** Custom emoji packs (emoticon-usage). Omit to keep the picker unicode-only. */
+  customPacks?: CustomEmoji[] | CustomEmojiPack[];
+  client?: MatrixClient | null;
+  onSelectCustom?: (emoji: CustomEmoji) => void;
+}
+
+interface CustomSection {
+  id: string;
+  label: string;
+  iconMxc?: string;
+  emojis: CustomEmoji[];
+}
+
+function groupCustomPacks(
+  customPacks: EmojiPickerProps['customPacks'],
+): CustomSection[] {
+  if (!customPacks || customPacks.length === 0) return [];
+  // Two input shapes are supported: a flat CustomEmoji[] (from
+  // useAvailableEmoticons) and a pre-grouped CustomEmojiPack[]. The flat form
+  // is the common case; we group it by source so the user pack and each room
+  // pack render as separate sections.
+  if ('shortcode' in (customPacks[0] as object)) {
+    const flat = customPacks as CustomEmoji[];
+    const buckets = new Map<string, CustomSection>();
+    for (const e of flat) {
+      const id =
+        e.source.kind === 'user'
+          ? 'user'
+          : `room:${e.source.roomId}:${e.source.stateKey}`;
+      const label =
+        e.source.kind === 'user' ? 'My emojis' : 'Room emojis';
+      let bucket = buckets.get(id);
+      if (!bucket) {
+        bucket = { id, label, emojis: [] };
+        buckets.set(id, bucket);
+      }
+      bucket.emojis.push(e);
+    }
+    return Array.from(buckets.values());
+  }
+  const packs = customPacks as CustomEmojiPack[];
+  return packs.map((pack) => ({
+    id:
+      pack.source.kind === 'user'
+        ? 'user'
+        : `room:${pack.source.roomId}:${pack.source.stateKey}`,
+    label: pack.displayName,
+    iconMxc: pack.avatarMxc,
+    emojis: pack.emoticons,
+  }));
 }
 
 export function EmojiPicker({
@@ -24,7 +78,11 @@ export function EmojiPicker({
   trigger,
   align = 'start',
   side = 'top',
+  customPacks,
+  client,
+  onSelectCustom,
 }: EmojiPickerProps) {
+  const sections = useMemo(() => groupCustomPacks(customPacks), [customPacks]);
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <PopoverPrimitive.Trigger render={trigger} />
@@ -40,9 +98,10 @@ export function EmojiPicker({
             aria-label="Emoji picker"
           >
             <EmojiPickerBody
-              onSelect={(e) => {
-                onSelect(e);
-              }}
+              onSelect={onSelect}
+              customSections={sections}
+              client={client}
+              onSelectCustom={onSelectCustom}
             />
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
@@ -51,9 +110,20 @@ export function EmojiPicker({
   );
 }
 
-function EmojiPickerBody({ onSelect }: { onSelect: (emoji: string) => void }) {
+function EmojiPickerBody({
+  onSelect,
+  customSections,
+  client,
+  onSelectCustom,
+}: {
+  onSelect: (emoji: string) => void;
+  customSections: CustomSection[];
+  client?: MatrixClient | null;
+  onSelectCustom?: (emoji: CustomEmoji) => void;
+}) {
   const [query, setQuery] = useState('');
-  const [activeId, setActiveId] = useState(EMOJI_CATEGORIES[0].id);
+  const firstId = customSections[0]?.id ?? EMOJI_CATEGORIES[0].id;
+  const [activeId, setActiveId] = useState(firstId);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -62,10 +132,32 @@ function EmojiPickerBody({ onSelect }: { onSelect: (emoji: string) => void }) {
     inputRef.current?.focus();
   }, []);
 
-  const searchResults = useMemo(() => searchEmojis(query), [query]);
   const isSearching = query.trim().length > 0;
+  const searchResults = useMemo(() => searchEmojis(query), [query]);
+  const customSearchResults = useMemo(() => {
+    if (!isSearching) return [];
+    const q = query.trim().toLowerCase();
+    const out: CustomEmoji[] = [];
+    const seen = new Set<string>();
+    for (const section of customSections) {
+      for (const e of section.emojis) {
+        if (seen.has(e.shortcode)) continue;
+        if (e.shortcode === q || e.shortcode.includes(q)) {
+          seen.add(e.shortcode);
+          out.push(e);
+        }
+      }
+    }
+    out.sort((a, b) => a.shortcode.length - b.shortcode.length);
+    return out;
+  }, [customSections, query, isSearching]);
 
-  function scrollToCategory(id: string) {
+  const allSectionIds = [
+    ...customSections.map((s) => s.id),
+    ...EMOJI_CATEGORIES.map((c) => c.id),
+  ];
+
+  function scrollToSection(id: string) {
     const el = sectionRefs.current[id];
     const root = scrollRef.current;
     if (!el || !root) return;
@@ -78,11 +170,11 @@ function EmojiPickerBody({ onSelect }: { onSelect: (emoji: string) => void }) {
     const root = scrollRef.current;
     if (!root) return;
     const top = root.scrollTop;
-    let current = EMOJI_CATEGORIES[0].id;
-    for (const cat of EMOJI_CATEGORIES) {
-      const el = sectionRefs.current[cat.id];
+    let current = allSectionIds[0];
+    for (const id of allSectionIds) {
+      const el = sectionRefs.current[id];
       if (!el) continue;
-      if (el.offsetTop - root.offsetTop - 8 <= top) current = cat.id;
+      if (el.offsetTop - root.offsetTop - 8 <= top) current = id;
     }
     if (current !== activeId) setActiveId(current);
   }
@@ -108,40 +200,105 @@ function EmojiPickerBody({ onSelect }: { onSelect: (emoji: string) => void }) {
         className="flex-1 overflow-y-auto px-2 pb-1.5"
       >
         {isSearching ? (
-          searchResults.length === 0 ? (
+          customSearchResults.length === 0 && searchResults.length === 0 ? (
             <div className="py-8 text-center text-xs text-[var(--color-text-muted)]">
               No emoji match “{query.trim()}”.
             </div>
           ) : (
-            <EmojiGrid items={searchResults} onSelect={onSelect} />
+            <>
+              {customSearchResults.length > 0 && (
+                <CustomEmojiGrid
+                  items={customSearchResults}
+                  client={client}
+                  onSelect={(e) => {
+                    if (onSelectCustom) onSelectCustom(e);
+                    else onSelect(`:${e.shortcode}:`);
+                  }}
+                />
+              )}
+              {searchResults.length > 0 && (
+                <EmojiGrid items={searchResults} onSelect={onSelect} />
+              )}
+            </>
           )
         ) : (
-          EMOJI_CATEGORIES.map((cat) => (
-            <div
-              key={cat.id}
-              ref={(el) => {
-                sectionRefs.current[cat.id] = el;
-              }}
-              className="pt-1.5 first:pt-0"
-            >
-              <div className="sticky top-0 z-10 -mx-2 bg-[var(--color-panel-2)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                {cat.label}
+          <>
+            {customSections.map((section) => (
+              <div
+                key={section.id}
+                ref={(el) => {
+                  sectionRefs.current[section.id] = el;
+                }}
+                className="pt-1.5 first:pt-0"
+              >
+                <div className="sticky top-0 z-10 -mx-2 bg-[var(--color-panel-2)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                  {section.label}
+                </div>
+                <CustomEmojiGrid
+                  items={section.emojis}
+                  client={client}
+                  onSelect={(e) => {
+                    if (onSelectCustom) onSelectCustom(e);
+                    else onSelect(`:${e.shortcode}:`);
+                  }}
+                />
               </div>
-              <EmojiGrid items={cat.items} onSelect={onSelect} />
-            </div>
-          ))
+            ))}
+            {EMOJI_CATEGORIES.map((cat) => (
+              <div
+                key={cat.id}
+                ref={(el) => {
+                  sectionRefs.current[cat.id] = el;
+                }}
+                className="pt-1.5 first:pt-0"
+              >
+                <div className="sticky top-0 z-10 -mx-2 bg-[var(--color-panel-2)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                  {cat.label}
+                </div>
+                <EmojiGrid items={cat.items} onSelect={onSelect} />
+              </div>
+            ))}
+          </>
         )}
       </div>
 
       {!isSearching && (
-        <div className="flex shrink-0 items-center justify-between border-t border-[var(--color-divider)] px-1.5 py-1">
+        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-t border-[var(--color-divider)] px-1.5 py-1">
+          {customSections.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              onClick={() => scrollToSection(section.id)}
+              className={cn(
+                'flex h-7 w-7 shrink-0 items-center justify-center transition-colors',
+                activeId === section.id
+                  ? 'bg-[var(--color-hover-overlay)]'
+                  : 'opacity-60 hover:bg-[var(--color-hover-overlay)] hover:opacity-100',
+              )}
+              aria-label={section.label}
+              title={section.label}
+            >
+              {section.iconMxc ? (
+                <AuthedImage
+                  client={client}
+                  mxc={section.iconMxc}
+                  width={32}
+                  height={32}
+                  className="h-5 w-5 object-contain"
+                  fallback={<FallbackPackIcon section={section} client={client} />}
+                />
+              ) : (
+                <FallbackPackIcon section={section} client={client} />
+              )}
+            </button>
+          ))}
           {EMOJI_CATEGORIES.map((cat) => (
             <button
               key={cat.id}
               type="button"
-              onClick={() => scrollToCategory(cat.id)}
+              onClick={() => scrollToSection(cat.id)}
               className={cn(
-                'flex h-7 w-7 items-center justify-center text-base transition-colors',
+                'flex h-7 w-7 shrink-0 items-center justify-center text-base transition-colors',
                 activeId === cat.id
                   ? 'bg-[var(--color-hover-overlay)]'
                   : 'opacity-60 hover:bg-[var(--color-hover-overlay)] hover:opacity-100',
@@ -156,6 +313,18 @@ function EmojiPickerBody({ onSelect }: { onSelect: (emoji: string) => void }) {
       )}
     </div>
   );
+}
+
+function FallbackPackIcon({
+  section,
+  client,
+}: {
+  section: CustomSection;
+  client: MatrixClient | null | undefined;
+}) {
+  const first = section.emojis[0];
+  if (!first) return <span className="text-base">★</span>;
+  return <EmoteImage client={client} mxc={first.mxc} alt={section.label} size={20} />;
 }
 
 function EmojiGrid({
@@ -177,6 +346,33 @@ function EmojiGrid({
           title={entry.n}
         >
           {entry.e}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CustomEmojiGrid({
+  items,
+  client,
+  onSelect,
+}: {
+  items: CustomEmoji[];
+  client: MatrixClient | null | undefined;
+  onSelect: (emoji: CustomEmoji) => void;
+}) {
+  return (
+    <div className="grid grid-cols-8 gap-0.5">
+      {items.map((entry) => (
+        <button
+          key={`${entry.shortcode}-${entry.mxc}`}
+          type="button"
+          onClick={() => onSelect(entry)}
+          className="flex h-9 w-9 items-center justify-center hover:bg-[var(--color-hover-overlay)] focus-visible:bg-[var(--color-hover-overlay)] focus-visible:outline-none"
+          aria-label={`:${entry.shortcode}:`}
+          title={`:${entry.shortcode}:`}
+        >
+          <EmoteImage client={client} mxc={entry.mxc} alt={`:${entry.shortcode}:`} size={26} />
         </button>
       ))}
     </div>

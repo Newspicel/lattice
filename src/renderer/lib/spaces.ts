@@ -1,5 +1,15 @@
 import type { RoomSummary } from '@/state/rooms';
 
+// Sentinel "room id" used as the activeRoomId when the user is viewing a
+// space's lobby (overview) instead of an actual room. Reusing activeRoomId
+// keeps the sidebar selection model uniform — the lobby highlights like any
+// other row, and per-space room memory carries over.
+export const LOBBY_ROOM_ID = '__lattice_lobby__';
+
+export function isLobbyRoomId(id: string | null): boolean {
+  return id === LOBBY_ROOM_ID;
+}
+
 export interface SubspaceGroup {
   space: RoomSummary;
   rooms: RoomSummary[];

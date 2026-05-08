@@ -18,6 +18,7 @@ import { CommandPalette } from '@/ui/shell/CommandPalette';
 import { TooltipProvider } from '@/ui/primitives/tooltip';
 import { Toaster } from '@/ui/primitives/sonner';
 import { useApplyTheme } from '@/lib/theme';
+import { isLobbyRoomId } from '@/lib/spaces';
 import { StartDmDialog } from '@/ui/dialogs/StartDmDialog';
 import { CreateRoomDialog } from '@/ui/dialogs/CreateRoomDialog';
 import { CreateSpaceDialog } from '@/ui/dialogs/CreateSpaceDialog';
@@ -29,7 +30,9 @@ export function App() {
   useApplyTheme();
   const [booting, setBooting] = useState(true);
   const hasAccounts = useAccountsStore((s) => Object.keys(s.accounts).length > 0);
+  const activeRoomId = useAccountsStore((s) => s.activeRoomId);
   const memberListOpen = useUiStore((s) => s.memberListOpen);
+  const inLobby = isLobbyRoomId(activeRoomId);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const loginAnotherOpen = useUiStore((s) => s.loginAnotherOpen);
@@ -105,7 +108,7 @@ export function App() {
           <RoomList />
           <MainPane />
           <ThreadPane />
-          {memberListOpen && <MemberList />}
+          {memberListOpen && !inLobby && <MemberList />}
         </div>
         <CallOverlay />
         <ImageLightbox />

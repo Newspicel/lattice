@@ -28,6 +28,55 @@ function currentChromeBg(): string {
   return nativeTheme.shouldUseDarkColors ? BG_DARK : BG_LIGHT;
 }
 
+const MATRIX_URL_FILTER = {
+  urls: ['*://*/_matrix/*', '*://*/.well-known/matrix/*'],
+};
+
+// Some homeservers (and reverse proxies in front of them) don't return CORS
+// headers, which breaks the renderer talking to them from the Vite dev origin
+// (`http://localhost:5173`) — and from the packaged `file://` origin too once
+// `webSecurity: true`. Inject permissive headers on Matrix responses, and
+// short-circuit the preflight to a 200 so Chromium accepts the request.
+function setupMatrixCorsBypass(): void {
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    MATRIX_URL_FILTER,
+    (details, callback) => {
+      const requestHeaders = { ...details.requestHeaders };
+      // Strip the renderer's Origin so the homeserver — and any caching CDN —
+      // can't pin the response to that single origin in `Access-Control-Allow-Origin`.
+      delete requestHeaders.Origin;
+      delete requestHeaders.origin;
+      callback({ requestHeaders });
+    },
+  );
+
+  session.defaultSession.webRequest.onHeadersReceived(
+    MATRIX_URL_FILTER,
+    (details, callback) => {
+      const responseHeaders: Record<string, string[]> = {};
+      for (const [key, value] of Object.entries(details.responseHeaders ?? {})) {
+        // Drop existing CORS headers (any case) — we replace them wholesale.
+        if (/^access-control-/i.test(key)) continue;
+        responseHeaders[key] = Array.isArray(value) ? value : [value];
+      }
+      responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+      responseHeaders['Access-Control-Allow-Methods'] = [
+        'GET, HEAD, POST, PUT, DELETE, OPTIONS',
+      ];
+      responseHeaders['Access-Control-Allow-Headers'] = [
+        'Authorization, Content-Type, X-Requested-With',
+      ];
+      responseHeaders['Access-Control-Max-Age'] = ['86400'];
+
+      // Some servers reply to OPTIONS with 401/403; rewrite to 200 so Chromium
+      // accepts the preflight. Real (non-OPTIONS) status codes are left alone.
+      const isPreflight = details.method === 'OPTIONS';
+      const statusLine = isPreflight ? 'HTTP/1.1 200 OK' : details.statusLine;
+      callback({ responseHeaders, statusLine });
+    },
+  );
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -119,6 +168,8 @@ if (!singleInstanceLock) {
         callback({});
       }
     });
+
+    setupMatrixCorsBypass();
 
     registerDeepLinkProtocol();
     registerIpcHandlers();

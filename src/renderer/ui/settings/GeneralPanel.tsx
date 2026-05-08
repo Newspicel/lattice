@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { Monitor, Moon, Plus, Sun, X } from 'lucide-react';
-import { useUiStore, type ThemePreference } from '@/state/ui';
+import { useUiStore, type QuickReaction, type ThemePreference } from '@/state/ui';
 import { EmojiPicker } from '@/ui/primitives/emoji-picker';
+import { useAccountsStore } from '@/state/accounts';
+import { useAvailableEmoticons } from '@/state/customEmojis';
+import { accountManager } from '@/matrix/AccountManager';
+import { EmoteImage } from '@/ui/timeline/EmoteImage';
 import { cn } from '@/lib/utils';
 import { SettingsPanel, SettingsRow, SettingsSection } from './SettingsPrimitives';
 
@@ -76,10 +80,15 @@ function QuickReactionsEditor() {
   const setQuickReactions = useUiStore((s) => s.setQuickReactions);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
-  function replaceAt(i: number, emoji: string) {
+  const activeAccountId = useAccountsStore((s) => s.activeAccountId);
+  const activeRoomId = useAccountsStore((s) => s.activeRoomId);
+  const client = activeAccountId ? accountManager.getClient(activeAccountId) : null;
+  const availableEmoticons = useAvailableEmoticons(activeAccountId, activeRoomId);
+
+  function replaceAt(i: number, slot: QuickReaction) {
     const next = [...quickReactions];
-    if (i >= next.length) next.push(emoji);
-    else next[i] = emoji;
+    if (i >= next.length) next.push(slot);
+    else next[i] = slot;
     setQuickReactions(next);
   }
 
@@ -88,25 +97,44 @@ function QuickReactionsEditor() {
     setQuickReactions(next);
   }
 
+  function describe(slot: QuickReaction): string {
+    return slot.kind === 'unicode' ? slot.value : `:${slot.shortcode}:`;
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2 border border-[var(--color-divider)] bg-[var(--color-panel-2)] p-3">
-      {quickReactions.map((emoji, i) => (
+      {quickReactions.map((slot, i) => (
         <div key={i} className="group relative">
           <EmojiPicker
             open={editingIndex === i}
             onOpenChange={(o) => setEditingIndex(o ? i : null)}
             side="bottom"
+            customPacks={availableEmoticons}
+            client={client}
             onSelect={(next) => {
-              replaceAt(i, next);
+              replaceAt(i, { kind: 'unicode', value: next });
+              setEditingIndex(null);
+            }}
+            onSelectCustom={(emoji) => {
+              replaceAt(i, { kind: 'custom', mxc: emoji.mxc, shortcode: emoji.shortcode });
               setEditingIndex(null);
             }}
             trigger={
               <button
                 type="button"
                 className="flex h-10 w-12 items-center justify-center border border-[var(--color-divider)] bg-[var(--color-panel)] text-xl transition-colors hover:bg-[var(--color-surface)] aria-expanded:border-[var(--color-text-faint)] aria-expanded:bg-[var(--color-surface)]"
-                aria-label={`Quick reaction ${i + 1}: ${emoji}. Click to change.`}
+                aria-label={`Quick reaction ${i + 1}: ${describe(slot)}. Click to change.`}
               >
-                {emoji}
+                {slot.kind === 'unicode' ? (
+                  slot.value
+                ) : (
+                  <EmoteImage
+                    client={client}
+                    mxc={slot.mxc}
+                    alt={`:${slot.shortcode}:`}
+                    size={26}
+                  />
+                )}
               </button>
             }
           />
@@ -114,7 +142,7 @@ function QuickReactionsEditor() {
             type="button"
             onClick={() => removeAt(i)}
             className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center bg-[var(--color-panel-2)] text-[var(--color-text-muted)] opacity-0 transition-colors group-hover:opacity-100 hover:bg-red-500 hover:text-white"
-            aria-label={`Remove quick reaction ${emoji}`}
+            aria-label={`Remove quick reaction ${describe(slot)}`}
           >
             <X className="h-2.5 w-2.5" />
           </button>
@@ -124,8 +152,18 @@ function QuickReactionsEditor() {
         open={editingIndex === quickReactions.length}
         onOpenChange={(o) => setEditingIndex(o ? quickReactions.length : null)}
         side="bottom"
+        customPacks={availableEmoticons}
+        client={client}
         onSelect={(next) => {
-          replaceAt(quickReactions.length, next);
+          replaceAt(quickReactions.length, { kind: 'unicode', value: next });
+          setEditingIndex(null);
+        }}
+        onSelectCustom={(emoji) => {
+          replaceAt(quickReactions.length, {
+            kind: 'custom',
+            mxc: emoji.mxc,
+            shortcode: emoji.shortcode,
+          });
           setEditingIndex(null);
         }}
         trigger={

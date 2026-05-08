@@ -9,6 +9,9 @@ import { retryUndecryptedEvents } from './verification';
 import { useAccountsStore } from '@/state/accounts';
 import { useRoomsStore } from '@/state/rooms';
 import { useTimelineStore } from '@/state/timeline';
+import { useCustomEmojiStore } from '@/state/customEmojis';
+import { ROOM_EMOTES_TYPE, USER_EMOTES_TYPE, EMOTE_ROOMS_TYPE } from './customEmojis';
+import { clearForClient as clearMediaCacheForClient } from '@/lib/mediaCache';
 
 interface Account {
   metadata: AccountMetadata;
@@ -93,14 +96,31 @@ class AccountManager {
     this.accounts.set(metadata.id, { metadata, client });
     useAccountsStore.getState().upsert(metadata);
 
+    let initialEmojiSweepDone = false;
     client.on(ClientEvent.Sync, (state: SyncState) => {
       useAccountsStore.getState().setSyncState(metadata.id, state);
       if (state === SyncState.Prepared || state === SyncState.Syncing) {
         useRoomsStore.getState().refreshRooms(metadata.id, client);
+        if (!initialEmojiSweepDone && state === SyncState.Prepared) {
+          initialEmojiSweepDone = true;
+          const emojiStore = useCustomEmojiStore.getState();
+          emojiStore.refreshUserPack(metadata.id, client);
+          emojiStore.refreshEmoteRooms(metadata.id, client);
+          emojiStore.refreshAllRoomsForAccount(metadata.id, client);
+        }
       }
       if (state === SyncState.Error) {
         // matrix-js-sdk auto-retries internally; just log for visibility.
         console.warn(`[sync ${metadata.id}] error — auto-retrying`);
+      }
+    });
+
+    client.on(ClientEvent.AccountData, (event) => {
+      const t = event.getType();
+      if (t === USER_EMOTES_TYPE) {
+        useCustomEmojiStore.getState().refreshUserPack(metadata.id, client);
+      } else if (t === EMOTE_ROOMS_TYPE) {
+        useCustomEmojiStore.getState().refreshEmoteRooms(metadata.id, client);
       }
     });
 
@@ -118,6 +138,9 @@ class AccountManager {
     client.on(RoomEvent.Timeline, (event, room, toStartOfTimeline) => {
       if (!room) return;
       useTimelineStore.getState().onTimelineAppend(metadata.id, room.roomId, client);
+      if (event.isState() && event.getType() === ROOM_EMOTES_TYPE) {
+        useCustomEmojiStore.getState().refreshRoomPacks(metadata.id, room.roomId, client);
+      }
       if (toStartOfTimeline) return;
       useRoomsStore.getState().refreshRooms(metadata.id, client);
       maybeNotify(metadata.id, client, event, room);
@@ -212,12 +235,14 @@ class AccountManager {
         console.warn(`[accounts ${accountId}] logout failed`, err);
         entry.client.stopClient();
       }
+      clearMediaCacheForClient(entry.client);
       this.accounts.delete(accountId);
     }
     await window.native.accounts.delete(accountId);
     await forgetAccountSecrets(accountId);
     useAccountsStore.getState().remove(accountId);
     useRoomsStore.getState().removeAccount(accountId);
+    useCustomEmojiStore.getState().clearAccount(accountId);
   }
 }
 

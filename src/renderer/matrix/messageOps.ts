@@ -1,6 +1,7 @@
-import type { MatrixClient } from 'matrix-js-sdk';
+import { EventType, type MatrixClient } from 'matrix-js-sdk';
 import type { RoomMessageEventContent } from 'matrix-js-sdk/lib/@types/events';
-import { composeTextContent } from '@/lib/markdown';
+import { composeMessageContent } from '@/lib/markdown';
+import type { CustomEmoji } from './customEmojis';
 
 export async function sendReaction(
   client: MatrixClient,
@@ -33,8 +34,9 @@ export async function sendEdit(
   roomId: string,
   targetEventId: string,
   newBody: string,
+  resolveCustomEmoji?: (shortcode: string) => CustomEmoji | null,
 ): Promise<void> {
-  const base = composeTextContent(newBody);
+  const base = composeMessageContent(newBody, resolveCustomEmoji);
   const content = {
     ...base,
     body: `* ${base.body}`,
@@ -47,14 +49,28 @@ export async function sendEdit(
   await client.sendMessage(roomId, content);
 }
 
+export async function sendSticker(
+  client: MatrixClient,
+  roomId: string,
+  emoji: CustomEmoji,
+): Promise<void> {
+  const content = {
+    body: emoji.body || `:${emoji.shortcode}:`,
+    info: emoji.info ?? {},
+    url: emoji.mxc,
+  };
+  await client.sendEvent(roomId, EventType.Sticker, content);
+}
+
 export async function sendReply(
   client: MatrixClient,
   roomId: string,
   replyToEventId: string,
   body: string,
   target?: { sender: string; body: string; formattedBody?: string } | null,
+  resolveCustomEmoji?: (shortcode: string) => CustomEmoji | null,
 ): Promise<void> {
-  const base = composeTextContent(body);
+  const base = composeMessageContent(body, resolveCustomEmoji);
   const quote = target ? buildReplyQuote(roomId, replyToEventId, target) : null;
   const content = {
     ...base,

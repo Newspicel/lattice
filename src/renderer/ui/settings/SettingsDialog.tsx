@@ -6,6 +6,7 @@ import {
   MonitorSmartphone,
   Plus,
   Settings as SettingsIcon,
+  Smile,
   User,
   X,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ import { useOwnProfile } from '@/lib/profile';
 import { cn } from '@/lib/utils';
 import { Button } from '@/ui/primitives/button';
 import { AccountPanel } from './AccountPanel';
+import { CustomEmojisPanel } from './CustomEmojisPanel';
 import { DevicesPanel } from './DevicesPanel';
 import { EncryptionPanel } from './EncryptionPanel';
 import { GeneralPanel } from './GeneralPanel';
@@ -27,7 +29,7 @@ import { UpdatesPanel } from './UpdatesPanel';
 import { VoicePanel } from './VoicePanel';
 
 type ClientTabId = 'general' | 'voice' | 'updates';
-type AccountTabId = 'account' | 'encryption' | 'devices';
+type AccountTabId = 'account' | 'encryption' | 'devices' | 'custom-emojis';
 
 type TabSelection =
   | { scope: 'client'; id: ClientTabId }
@@ -57,6 +59,7 @@ const ACCOUNT_TABS: AccountTabDef[] = [
   { id: 'account', label: 'Account', icon: User },
   { id: 'encryption', label: 'Encryption', icon: KeyRound },
   { id: 'devices', label: 'Devices', icon: MonitorSmartphone },
+  { id: 'custom-emojis', label: 'Custom Emojis', icon: Smile },
 ];
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
@@ -208,6 +211,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             )}
             {tab.scope === 'account' && tab.id === 'devices' && (
               <DevicesPanel client={selectedClient} onSasStart={trackSas} />
+            )}
+            {tab.scope === 'account' && tab.id === 'custom-emojis' && (
+              <CustomEmojisPanel accountId={tab.accountId} client={selectedClient} />
             )}
           </main>
         </DialogPrimitive.Popup>
