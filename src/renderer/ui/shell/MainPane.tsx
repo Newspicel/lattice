@@ -46,12 +46,12 @@ export function MainPane() {
     : room?.name ?? 'Select a room';
 
   return (
-    <section className="flex h-full flex-1 flex-col bg-[var(--color-panel-2)]">
+    <section className="flex h-full min-w-0 flex-1 flex-col bg-[var(--color-panel-2)]">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[var(--color-divider)] px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {lobbyMode ? (
             <Home
-              className="h-4 w-4 text-[var(--color-text-muted)]"
+              className="h-4 w-4 shrink-0 text-[var(--color-text-muted)]"
               strokeWidth={1.75}
             />
           ) : (
@@ -60,19 +60,19 @@ export function MainPane() {
               isEncrypted={!!room?.isEncrypted}
             />
           )}
-          <h1 className="truncate text-sm font-semibold tracking-tight text-[var(--color-text-strong)]">
+          <h1 className="min-w-0 truncate text-sm font-semibold tracking-tight text-[var(--color-text-strong)]">
             {headerTitle}
           </h1>
           {!lobbyMode && room?.topic && (
             <>
-              <span aria-hidden className="h-3 w-px bg-[var(--color-divider)]" />
-              <span className="truncate text-xs text-[var(--color-text-muted)]">
+              <span aria-hidden className="h-3 w-px shrink-0 bg-[var(--color-divider)]" />
+              <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-text-muted)] [flex-shrink:9999]">
                 {room.topic}
               </span>
             </>
           )}
         </div>
-        <div className="flex items-center">
+        <div className="flex shrink-0 items-center">
           {!lobbyMode && room && !room.isVoice && !room.isInvite && (
             <button
               type="button"

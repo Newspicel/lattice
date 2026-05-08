@@ -19,9 +19,9 @@ export function LoginAnotherDialog({ onClose }: { onClose: () => void }) {
         <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-[var(--color-backdrop)] data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity duration-150" />
         <DialogPrimitive.Popup
           aria-label="Add another account"
-          className="fixed inset-0 z-50 flex items-center justify-center outline-none"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-8 outline-none"
         >
-          <div className="relative">
+          <div className="relative my-auto">
             <DialogPrimitive.Close
               render={
                 <Button

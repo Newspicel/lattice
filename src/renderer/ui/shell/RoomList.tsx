@@ -108,7 +108,7 @@ export function RoomList() {
       aria-label="Room list"
     >
       <header className="flex h-12 shrink-0 items-center gap-1 border-b border-[var(--color-divider)] px-4 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-strong)]">
-        <span className="flex-1 truncate">
+        <span className="min-w-0 flex-1 truncate">
           {activeSpace ? activeSpace.name : 'Direct Messages'}
         </span>
         <RoomListActions activeSpace={activeSpace} />

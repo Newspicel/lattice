@@ -30,7 +30,7 @@ export function DialogShell({
         <DialogPrimitive.Popup
           aria-label={title}
           style={{ width }}
-          className="fixed left-1/2 top-1/2 z-50 max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 border border-[var(--color-divider)] bg-[var(--color-panel)] outline-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity duration-150"
+          className="fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col border border-[var(--color-divider)] bg-[var(--color-panel)] outline-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity duration-150"
         >
           <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-divider)] px-4">
             <DialogPrimitive.Title className="truncate text-sm font-semibold uppercase tracking-wider text-[var(--color-text-strong)]">
@@ -43,11 +43,11 @@ export function DialogShell({
             </DialogPrimitive.Close>
           </header>
           {description && (
-            <DialogPrimitive.Description className="border-b border-[var(--color-divider)] px-4 py-2 text-xs text-[var(--color-text-muted)]">
+            <DialogPrimitive.Description className="shrink-0 border-b border-[var(--color-divider)] px-4 py-2 text-xs text-[var(--color-text-muted)]">
               {description}
             </DialogPrimitive.Description>
           )}
-          <div className="px-4 py-4">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

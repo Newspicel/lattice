@@ -123,7 +123,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-[var(--color-backdrop)] data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity duration-150" />
         <DialogPrimitive.Popup
           aria-label="Settings"
-          className="fixed left-1/2 top-1/2 z-50 flex h-[80vh] w-[920px] -translate-x-1/2 -translate-y-1/2 border border-[var(--color-divider)] bg-[var(--color-panel)] outline-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity duration-150"
+          className="fixed left-1/2 top-1/2 z-50 flex h-[80vh] max-h-[calc(100dvh-2rem)] w-[920px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 border border-[var(--color-divider)] bg-[var(--color-panel)] outline-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity duration-150"
         >
           <DialogPrimitive.Title className="sr-only">Settings</DialogPrimitive.Title>
 
@@ -331,7 +331,7 @@ function VerificationIncoming({
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-[var(--color-backdrop-strong)]" />
         <DialogPrimitive.Popup
           aria-label="Incoming verification"
-          className="fixed left-1/2 top-1/2 z-50 w-[360px] -translate-x-1/2 -translate-y-1/2 border border-[var(--color-divider)] bg-[var(--color-panel-2)] p-6 text-center outline-none"
+          className="fixed left-1/2 top-1/2 z-50 w-[360px] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto -translate-x-1/2 -translate-y-1/2 border border-[var(--color-divider)] bg-[var(--color-panel-2)] p-6 text-center outline-none"
         >
           <DialogPrimitive.Title className="mb-3 text-lg font-semibold">
             Incoming verification
@@ -369,7 +369,7 @@ function VerificationEmoji({
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-[var(--color-backdrop-strong)]" />
         <DialogPrimitive.Popup
           aria-label="Compare emojis"
-          className="fixed left-1/2 top-1/2 z-50 w-[460px] -translate-x-1/2 -translate-y-1/2 border border-[var(--color-divider)] bg-[var(--color-panel-2)] p-6 text-center outline-none"
+          className="fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto -translate-x-1/2 -translate-y-1/2 border border-[var(--color-divider)] bg-[var(--color-panel-2)] p-6 text-center outline-none"
         >
           <DialogPrimitive.Title className="mb-1 text-lg font-semibold">
             Compare emojis
