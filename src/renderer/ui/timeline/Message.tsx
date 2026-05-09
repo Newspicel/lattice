@@ -545,7 +545,7 @@ function FileDownloadLink({
   const encUrl = useAuthedEncryptedMedia(client, file, mimetype);
   const url = file ? encUrl : plainUrl;
 
-  const Icon = pickFileIcon(mimetype, label);
+  const fileIcon = renderFileIcon(mimetype, label);
   const meta = formatFileMeta(size, mimetype, label);
 
   const cardClasses =
@@ -554,7 +554,7 @@ function FileDownloadLink({
   const inner = (
     <>
       <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--color-surface)] text-[var(--color-text-muted)] transition-colors group-hover/file:text-[var(--color-text)]">
-        <Icon className="h-5 w-5" strokeWidth={1.75} />
+        {fileIcon}
       </div>
       <div className="min-w-0 flex-1">
         <div
@@ -599,12 +599,13 @@ function FileDownloadLink({
   );
 }
 
-function pickFileIcon(mimetype: string | undefined, name: string) {
+function renderFileIcon(mimetype: string | undefined, name: string) {
+  const props = { className: 'h-5 w-5', strokeWidth: 1.75 } as const;
   const m = (mimetype ?? '').toLowerCase();
-  if (m.startsWith('image/')) return FileImage;
-  if (m.startsWith('video/')) return FileVideo;
-  if (m.startsWith('audio/')) return FileAudio;
-  if (m === 'application/pdf' || m.startsWith('text/')) return FileText;
+  if (m.startsWith('image/')) return <FileImage {...props} />;
+  if (m.startsWith('video/')) return <FileVideo {...props} />;
+  if (m.startsWith('audio/')) return <FileAudio {...props} />;
+  if (m === 'application/pdf' || m.startsWith('text/')) return <FileText {...props} />;
   if (
     m === 'application/zip' ||
     m === 'application/x-zip-compressed' ||
@@ -614,7 +615,7 @@ function pickFileIcon(mimetype: string | undefined, name: string) {
     m === 'application/gzip' ||
     m === 'application/x-bzip2'
   ) {
-    return FileArchive;
+    return <FileArchive {...props} />;
   }
   if (
     m === 'application/json' ||
@@ -622,20 +623,20 @@ function pickFileIcon(mimetype: string | undefined, name: string) {
     m === 'application/javascript' ||
     m === 'application/typescript'
   ) {
-    return FileCode;
+    return <FileCode {...props} />;
   }
   const ext = extOf(name);
-  if (['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'].includes(ext)) return FileArchive;
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'heic'].includes(ext)) return FileImage;
-  if (['mp4', 'mov', 'mkv', 'webm', 'avi'].includes(ext)) return FileVideo;
-  if (['mp3', 'wav', 'flac', 'ogg', 'm4a', 'opus'].includes(ext)) return FileAudio;
-  if (['pdf', 'txt', 'md', 'rtf'].includes(ext)) return FileText;
+  if (['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'].includes(ext)) return <FileArchive {...props} />;
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'heic'].includes(ext)) return <FileImage {...props} />;
+  if (['mp4', 'mov', 'mkv', 'webm', 'avi'].includes(ext)) return <FileVideo {...props} />;
+  if (['mp3', 'wav', 'flac', 'ogg', 'm4a', 'opus'].includes(ext)) return <FileAudio {...props} />;
+  if (['pdf', 'txt', 'md', 'rtf'].includes(ext)) return <FileText {...props} />;
   if (
     ['js', 'ts', 'tsx', 'jsx', 'json', 'xml', 'yaml', 'yml', 'py', 'rb', 'go', 'rs', 'c', 'cpp', 'h', 'java', 'sh'].includes(ext)
   ) {
-    return FileCode;
+    return <FileCode {...props} />;
   }
-  return FileIcon;
+  return <FileIcon {...props} />;
 }
 
 function formatFileMeta(size: number | undefined, mimetype: string | undefined, name: string): string {
