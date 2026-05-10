@@ -51,6 +51,19 @@ const ALLOWED_ATTR = [
 const SAFE_HREF = /^(https?:|mailto:|matrix:|#)/i;
 const MAX_EMOTE_HEIGHT = 32;
 
+// DOMPurify's default URI allowlist doesn't include mxc://, so it would strip
+// the src from MSC2545 emote imgs before our cleanup hook ever sees them.
+// Force-keep mxc:// src on img[data-mx-emoticon]; the React layer resolves it
+// via the authenticated media cache.
+DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+  if (!(node instanceof HTMLElement)) return;
+  if (node.tagName !== 'IMG') return;
+  if (data.attrName !== 'src') return;
+  if (!node.hasAttribute('data-mx-emoticon')) return;
+  if (!data.attrValue.startsWith('mxc://')) return;
+  data.forceKeepAttr = true;
+});
+
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (!(node instanceof HTMLElement)) return;
   if (node.tagName === 'IMG') {

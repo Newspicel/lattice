@@ -146,17 +146,13 @@ describe('sanitizeEventHtml', () => {
     expect(html).not.toContain('<img');
   });
 
-  // NOTE: there is a real bug in `markdown.ts` here — DOMPurify strips the
-  // `mxc://` src in `uponSanitizeAttribute` (before the `afterSanitizeAttributes`
-  // hook runs), so the hook sees no src and drops the entire img. Incoming
-  // event HTML therefore loses MSC2545 emote images. The hook needs to switch
-  // to `uponSanitizeAttribute` with `forceKeepAttr` for the mxc:// src case.
-  // Once fixed, the assertion below should flip to expect `data-mx-emoticon`.
-  it('currently drops mxc:// emote imgs in event html (documented bug)', () => {
+  it('preserves mxc:// emote imgs in event html', () => {
     const html = sanitizeEventHtml(
       '<p>hi <img data-mx-emoticon src="mxc://x/y" alt=":x:" height="32"></p>',
     );
-    expect(html).not.toContain('data-mx-emoticon');
+    expect(html).toContain('data-mx-emoticon');
+    expect(html).toContain('src="mxc://x/y"');
+    expect(html).toContain('alt=":x:"');
   });
 });
 
